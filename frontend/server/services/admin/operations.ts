@@ -19,6 +19,71 @@ export async function checkin(bookingId: string, stationId: string, db: Supabase
   return data
 }
 
+// ---- walk-ins -----------------------------------------------------------------------------------
+
+export const walkinSchema = z
+  .object({
+    station_id: z.guid('Choose a station'),
+    duration_hours: z.number().int().min(1).max(24).default(1),
+    user_count: z.number().int().min(1).max(20).default(1),
+    username: z.string().trim().min(1).max(30).optional(),
+    guest_name: z.string().trim().min(1).max(60).optional(),
+    guest_phone: z.string().trim().max(20).optional(),
+    payment_method: z.string().trim().max(50).optional(),
+    notes: z.string().trim().max(300).optional(),
+    start_timer: z.boolean().default(true),
+  })
+  .refine((v) => v.username || v.guest_name, 'Enter the player\'s name, or a member\'s username')
+
+const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
+
+const WALKIN_ERRORS: Record<string, [number, string]> = {
+  STATION_BUSY: [400, 'Someone is already playing on that station'],
+  SLOT_TAKEN: [400, 'A reservation on that station starts before this session would end. Choose a shorter time or another station'],
+  GUEST_REQUIRED: [400, 'Enter the player\'s name, or a member\'s username'],
+}
+
+/**
+ * A player walks in without a reservation: staff pick a free station and the session starts now.
+ * The player is a member (looked up by username, so prepaid minutes apply) or a guest with just a name.
+ */
+export async function walkIn(input: z.infer<typeof walkinSchema>, db: SupabaseClient = getSupabase(), now = new Date()) {
+  let userId: string | null = null
+  let guestName = input.guest_name ?? null
+  if (input.username) {
+    const { data: profile, error } = await db
+      .from('user_profiles')
+      .select('user_id, username, full_name')
+      .ilike('username', escapeLike(input.username))
+      .maybeSingle()
+    if (error) throw new ApiError(500, 'Failed to look up the player')
+    if (!profile) throw notFound('No member has that username')
+    userId = profile.user_id as string
+    guestName = null
+  }
+
+  const { data, error } = await db.rpc('walkin_checkin', {
+    p_station_id: input.station_id,
+    p_user_id: userId,
+    p_guest_name: guestName,
+    p_guest_phone: input.guest_phone ?? null,
+    p_duration_hours: input.duration_hours,
+    p_user_count: input.user_count,
+    p_now_ist: toIstString(now),
+    p_payment_method: input.payment_method ?? null,
+    p_notes: input.notes ?? null,
+  })
+  if (error || !data) throw mapRpcError(error, 'Failed to check in the player', WALKIN_ERRORS)
+  if (!input.start_timer) return data
+  // the booking exists either way; a failed timer start is reported by the next click on "Start timer"
+  try {
+    return await startTimer((data as { id: string }).id, db)
+  } catch (e) {
+    console.error('Walk-in timer did not start:', e)
+    return data
+  }
+}
+
 export async function startTimer(bookingId: string, db: SupabaseClient = getSupabase()) {
   const { data: b, error } = await db.from('bookings').select('checked_in_at, timer_started_at').eq('id', bookingId).maybeSingle()
   if (error) throw new ApiError(500, 'Failed to start timer')

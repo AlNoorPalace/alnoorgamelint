@@ -1,0 +1,67 @@
+import { describe, expect, it } from 'vitest'
+import { fakeDb, rpcArgs, type Call } from './fakeDb'
+import { walkIn, walkinSchema } from '../services/admin/operations'
+
+const ST = '00000000-0000-4000-8000-000000000001'
+const parse = (o: object) => walkinSchema.parse({ station_id: ST, ...o })
+const NOW = new Date('2026-10-12T09:30:00Z') // 15:00 IST
+const has = (c: Call[], m: string) => c.some((x) => x.method === m)
+
+const world = (over: { rpc?: object; profile?: object | null; timerRow?: object | null } = {}) =>
+  fakeDb({
+    tables: {
+      user_profiles: { data: 'profile' in over ? over.profile : { user_id: 'u9', username: 'neo', full_name: 'Neo' } },
+      bookings: (calls: Call[]) => (has(calls, 'update') ? { data: 'timerRow' in over ? over.timerRow : { id: 'b1', timer_started_at: 'now' } } : { data: { checked_in_at: 'x', timer_started_at: null } }),
+    },
+    rpcs: { walkin_checkin: over.rpc ?? { data: { id: 'b1', status: 'ONGOING' } } },
+  })
+
+describe('walk-in schema', () => {
+  it('needs a name or a member username, and sane numbers', () => {
+    expect(() => parse({})).toThrow()
+    expect(parse({ guest_name: ' Rahul ' })).toMatchObject({ guest_name: 'Rahul', duration_hours: 1, user_count: 1, start_timer: true })
+    expect(() => parse({ guest_name: 'A', duration_hours: 0 })).toThrow()
+    expect(() => parse({ guest_name: 'A', user_count: 21 })).toThrow()
+    expect(() => walkinSchema.parse({ guest_name: 'A', station_id: 'nope' })).toThrow()
+  })
+})
+
+describe('walkIn', () => {
+  it('checks a guest in now (IST) and starts the timer', async () => {
+    const w = world()
+    const out = await walkIn(parse({ guest_name: 'Rahul', guest_phone: '99999', duration_hours: 2, user_count: 2, payment_method: 'CASH' }), w.db, NOW)
+    expect(out).toMatchObject({ id: 'b1' })
+    expect(rpcArgs(w.log, 'walkin_checkin')).toEqual({
+      p_station_id: ST, p_user_id: null, p_guest_name: 'Rahul', p_guest_phone: '99999', p_duration_hours: 2, p_user_count: 2,
+      p_now_ist: '2026-10-12 15:00:00', p_payment_method: 'CASH', p_notes: null,
+    })
+    expect(w.log.some((e) => e.table === 'bookings' && has(e.calls, 'update'))).toBe(true) // timer started
+  })
+  it('links a member by username (ignoring case) so their prepaid minutes apply', async () => {
+    const w = world()
+    await walkIn(parse({ username: 'NEO', guest_name: 'ignored' }), w.db, NOW)
+    const args = rpcArgs(w.log, 'walkin_checkin')!
+    expect(args.p_user_id).toBe('u9')
+    expect(args.p_guest_name).toBeNull()
+    expect(w.log.find((e) => e.table === 'user_profiles')!.calls).toContainEqual({ method: 'ilike', args: ['username', 'NEO'] })
+  })
+  it('reports an unknown member', async () => {
+    await expect(walkIn(parse({ username: 'ghost' }), world({ profile: null }).db, NOW)).rejects.toMatchObject({ status: 404 })
+  })
+  it('can skip starting the timer', async () => {
+    const w = world()
+    await walkIn(parse({ guest_name: 'A', start_timer: false }), w.db, NOW)
+    expect(w.log.some((e) => e.table === 'bookings')).toBe(false)
+  })
+  it('keeps the booking even when the timer cannot start', async () => {
+    const w = world({ timerRow: null })
+    await expect(walkIn(parse({ guest_name: 'A' }), w.db, NOW)).resolves.toMatchObject({ id: 'b1' })
+  })
+  it('turns database refusals into clear messages', async () => {
+    const run = (code: string) => walkIn(parse({ guest_name: 'A' }), world({ rpc: { error: { message: code } } }).db, NOW)
+    await expect(run('STATION_BUSY')).rejects.toMatchObject({ status: 400, message: expect.stringContaining('already playing') })
+    await expect(run('SLOT_TAKEN')).rejects.toMatchObject({ status: 400, message: expect.stringContaining('reservation') })
+    await expect(run('STATION_NOT_FOUND')).rejects.toMatchObject({ status: 404 })
+    await expect(run('weird')).rejects.toMatchObject({ status: 500 })
+  })
+})

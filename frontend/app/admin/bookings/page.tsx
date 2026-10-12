@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { AdminGuard } from '@/components/ui/admin-guard'
 import { bookings, admin } from '@/lib/supabase'
 import { apiFetch } from '@/lib/api'
+import { WalkinModal } from '@/components/admin/walkin-modal'
 
 
 // Booking Edit Modal Component
@@ -335,6 +336,7 @@ export default function AdminBookings() {
   const [advanceTotalAmount, setAdvanceTotalAmount] = useState<number>(0)
   const [selectedStations, setSelectedStations] = useState<{[key: string]: string}>({})
   const [openStationMenuId, setOpenStationMenuId] = useState<string | null>(null)
+  const [walkin, setWalkin] = useState<{ stationId: string | null } | null>(null)
   const [timerUpdates, setTimerUpdates] = useState<{[key: string]: number}>({})
 
   useEffect(() => {
@@ -501,12 +503,13 @@ export default function AdminBookings() {
     if (!bookingList.length) return bookingList
     
     // Get unique user IDs
-    const userIds = Array.from(new Set(bookingList.map(b => b.user_id)))
+    // walk-in guests have no account, so only real user ids are looked up
+    const userIds = Array.from(new Set(bookingList.map(b => b.user_id).filter(Boolean)))
     
     // Fetch user profiles using admin function
     const userProfiles: any = {}
     try {
-      const { data, error } = await admin.getUserProfiles(userIds)
+      const { data, error } = userIds.length ? await admin.getUserProfiles(userIds) : { data: [], error: null }
       if (error) {
         console.error('Error fetching user profiles:', error)
       } else if (data && Array.isArray(data)) {
@@ -518,10 +521,10 @@ export default function AdminBookings() {
       console.error('Error fetching user profiles:', error)
     }
     
-    // Add user details to bookings
+    // Add user details to bookings (a guest shows the name staff typed)
     return bookingList.map(booking => ({
       ...booking,
-      user_profiles: userProfiles[booking.user_id] || null
+      user_profiles: userProfiles[booking.user_id] || (booking.guest_name ? { username: booking.guest_name, full_name: `${booking.guest_name} (walk-in)` } : null)
     }))
   }
 
@@ -802,6 +805,12 @@ export default function AdminBookings() {
                   }`}
                 >
                   Station View
+                </button>
+                <button
+                  onClick={() => { loadStationsWithReservations(); setWalkin({ stationId: null }) }}
+                  className="ml-auto px-4 py-2 rounded text-sm font-semibold bg-green-600 text-white hover:bg-green-500"
+                >
+                  + Walk-in check-in
                 </button>
               </div>
             </div>
@@ -1103,6 +1112,14 @@ export default function AdminBookings() {
                         'bg-green-900/20 border-green-500/50'
                       }`}
                     >
+                      {status !== 'occupied' && (
+                        <button
+                          onClick={() => setWalkin({ stationId: station.id })}
+                          className="mb-3 w-full rounded bg-green-600/80 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
+                        >
+                          Walk-in check-in
+                        </button>
+                      )}
                       <div className="flex justify-between items-start mb-3">
                         <div>
                           <h3 className="text-cp-yellow font-bold text-lg">{station.name}</h3>
@@ -1594,6 +1611,15 @@ export default function AdminBookings() {
         )}
 
       </div>
+      {walkin && (
+        <WalkinModal
+          key={stationsData.length}
+          stations={stationsData.filter((sd: any) => sd.station.id !== null).map((sd: any) => ({ id: sd.station.id, name: sd.station.name, type: sd.station.type, hourly_rate: sd.station.hourly_rate, status: getStationStatus(sd) }))}
+          stationId={walkin.stationId}
+          onClose={() => setWalkin(null)}
+          onDone={() => { setWalkin(null); loadStationsWithReservations(); loadBookings(); setViewMode('stations') }}
+        />
+      )}
     </AdminGuard>
   )
 } 

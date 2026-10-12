@@ -54,7 +54,7 @@ frontend/
 
 Run `sql/setup/01_tables.sql` ... `07_reminders_rpcs.sql` in order (README has the list). Anything that must be atomic is
 a SQL function so two simultaneous requests cannot both succeed: `create_booking` (slot check + coupon + insert),
-`cancel_booking`, `checkin_booking`, `stop_timer`, `extend_booking_hour`, `confirm_prepaid_card`, plus the dashboard
+`cancel_booking`, `checkin_booking`, `walkin_checkin` (`sql/setup/10_walkin_checkin.sql`), `stop_timer`, `extend_booking_hour`, `confirm_prepaid_card`, plus the dashboard
 aggregates and the reminder queries.
 
 ## Environment variables (server only unless noted)
@@ -88,6 +88,7 @@ Generated from the route files. "staff / admin" means either role; "signed-in us
 | GET | `/api/v1/admin/bookings/calendar` | staff / admin |
 | GET | `/api/v1/admin/bookings/cancelled` | staff / admin |
 | PUT | `/api/v1/admin/bookings/{id}` | staff / admin |
+| POST | `/api/v1/admin/bookings/walk-in` | staff / admin |
 | POST | `/api/v1/admin/bookings/{id}/checkin` | staff / admin |
 | POST | `/api/v1/admin/bookings/{id}/extend-hour` | staff / admin |
 | PUT | `/api/v1/admin/bookings/{id}/payment` | staff / admin |
@@ -149,3 +150,13 @@ npm run build     # production build
 
 The SQL functions were exercised on a local Postgres (including a concurrent double-booking attempt). Run the files
 twice on a fresh database to confirm they are safe to re-run.
+
+## Walk-in check-in
+
+`POST /api/v1/admin/bookings/walk-in` creates an ONGOING, checked-in booking on a free station, starting now, for a player
+who arrives without a reservation. Body: `station_id`, `duration_hours` (default 1), `user_count` (default 1), and either
+`username` (a member, so their prepaid minutes apply) or `guest_name` (+ optional `guest_phone`); optional `payment_method`,
+`notes`, `start_timer` (default true). Run `sql/setup/10_walkin_checkin.sql` first: it makes `bookings.user_id` optional,
+adds `guest_name`, `guest_phone` and `walk_in`, and adds the atomic `walkin_checkin` function. Refusals: station already
+in use (`STATION_BUSY`), or a reservation on that station would overlap the session (`SLOT_TAKEN`). In the admin Bookings
+page use "+ Walk-in check-in" or the button on an available station card.
