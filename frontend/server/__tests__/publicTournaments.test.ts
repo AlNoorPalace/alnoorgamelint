@@ -19,13 +19,17 @@ const overview = (over: object = {}) => ({ tournament_overview: { data: { ...T, 
 
 describe('solo registration', () => {
   it('registers, puts the player on the waitlist when full, and prices the entry', async () => {
-    const a = fakeDb({ tables: { ...overview(), user_profiles: { data: { username: 'neo', full_name: 'Neo A' } }, tournament_entrants: {} } })
+    const a = fakeDb({ tables: { ...overview(), user_profiles: { data: { username: 'neo', full_name: 'Neo A' } }, tournament_entrants: { data: { id: 'e1' } } } })
     await expect(registerForTournament('u1', 't1', a.db)).resolves.toMatchObject({ status: 'registered' })
     expect(inserted(a.log, 'tournament_entrants')).toMatchObject({ user_id: 'u1', display_name: 'Neo A', status: 'registered', payment_status: 'NOT_REQUIRED' })
 
-    const b = fakeDb({ tables: { ...overview({ registered_count: 4, entry_fee: 100 }), user_profiles: { data: { username: 'neo' } }, tournament_entrants: {} } })
+    const b = fakeDb({ tables: { ...overview({ registered_count: 4, entry_fee: 100 }), user_profiles: { data: { username: 'neo' } }, tournament_entrants: { data: { id: 'e2' } } } })
     await expect(registerForTournament('u1', 't1', b.db)).resolves.toMatchObject({ status: 'waitlist' })
     expect(inserted(b.log, 'tournament_entrants')).toMatchObject({ status: 'waitlist', payment_status: 'PENDING', display_name: 'neo' })
+  })
+  it('never reports success when no row came back', async () => {
+    const w = fakeDb({ tables: { ...overview(), user_profiles: { data: null }, tournament_entrants: { data: null } } })
+    await expect(registerForTournament('u1', 't1', w.db)).rejects.toMatchObject({ status: 500 })
   })
   it('refuses when closed, past the deadline, started, team format, a draft, or a duplicate', async () => {
     const past = new Date(Date.now() - 1000).toISOString()
@@ -36,12 +40,10 @@ describe('solo registration', () => {
     const dup = fakeDb({ tables: { ...overview(), user_profiles: { data: null }, tournament_entrants: { error: { code: '23505' } } } })
     await expect(registerForTournament('u1', 't1', dup.db)).rejects.toMatchObject({ message: 'Already registered' })
   })
-  it('only the draft filter hides drafts', async () => {
-    const { log, db } = fakeDb({ tables: overview() })
-    await registerForTournament('u1', 't1', fakeDb({ tables: { ...overview(), tournament_entrants: {}, user_profiles: {} } }).db)
-    const f = fakeDb({ tables: { tournament_overview: { data: null } } })
-    await expect(withdrawFromTournament('u1', 't1', f.db)).rejects.toMatchObject({ status: 404 })
-    expect(log.length + (db ? 0 : 1)).toBe(0)
+  it('a draft or unknown tournament is a 404 for sign-up and withdrawal', async () => {
+    const none = () => fakeDb({ tables: { tournament_overview: { data: null } } }).db
+    await expect(registerForTournament('u1', 't1', none())).rejects.toMatchObject({ status: 404 })
+    await expect(withdrawFromTournament('u1', 't1', none())).rejects.toMatchObject({ status: 404 })
   })
   it('withdraws before the bracket exists, not after', async () => {
     const ok = fakeDb({ tables: { ...overview(), tournament_entrants: { data: { id: 'e1' } } } })

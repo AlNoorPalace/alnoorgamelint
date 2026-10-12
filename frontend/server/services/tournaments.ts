@@ -136,9 +136,11 @@ export async function registerForTournament(userId: string, tournamentId: string
   if (t.team_size > 1) throw badRequest('This is a team tournament. Create or join a team instead')
 
   const row = entrantRow(t, { user_id: userId, display_name: await profileName(db, userId) })
-  const { error } = await db.from('tournament_entrants').insert(row)
+  // read the row back so "registered" is only ever reported for a row that really exists
+  const { data, error } = await db.from('tournament_entrants').insert(row).select('id').maybeSingle()
   if (error?.code === '23505') throw badRequest('Already registered')
   if (error) throw fail('Failed to register', error)
+  if (!data) throw fail('Failed to register', 'insert returned no row')
   return { message: row.status === 'waitlist' ? 'The tournament is full. You are on the waitlist' : 'Registered successfully', status: row.status }
 }
 
