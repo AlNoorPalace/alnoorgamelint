@@ -3,9 +3,10 @@
 import { useState } from 'react'
 
 /** Shares the page link: the phone's share sheet where there is one, otherwise copy, plus a WhatsApp shortcut. */
-export function ShareButton({ title, text }: { title: string; text: string }) {
+export function ShareButton({ title, text, path }: { title: string; text: string; path?: string }) {
   const [copied, setCopied] = useState(false)
-  const url = () => (typeof window === 'undefined' ? '' : window.location.href.split('#')[0])
+  // `path` shares a fixed page (the admin screen shares the public page, not its own address)
+  const url = () => (typeof window === 'undefined' ? '' : path ? `${window.location.origin}${path}` : window.location.href.split('#')[0])
 
   const copy = async () => {
     try {

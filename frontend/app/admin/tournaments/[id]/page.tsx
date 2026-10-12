@@ -126,6 +126,30 @@ export default function ManageTournamentPage() {
     )
   }
 
+  const generatePanel = (
+    <div className="rounded-lg bg-gray-900 p-5">
+                  <h2 className="mb-1 text-xl font-bold">Generate bracket</h2>
+                  <p className="mb-3 text-sm text-gray-400">
+                    {t.seeding === 'manual' ? 'Order the entrants below (top = seed 1).' : 'Seeding is random unless you reorder the list.'}
+                  </p>
+                  <ol className="mb-4 space-y-1">
+                    {sorted.map((e, i) => (
+                      <li key={e.id} className="flex items-center gap-2">
+                        <span className="w-6 text-right text-gray-500">{i + 1}</span>
+                        <span className="flex-1">{e.display_name}</span>
+                        <button className={`${btn} bg-gray-700`} onClick={() => move(i, -1)} aria-label="move up">↑</button>
+                        <button className={`${btn} bg-gray-700`} onClick={() => move(i, 1)} aria-label="move down">↓</button>
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="flex gap-2">
+                    <button disabled={busy} className={`${btn} bg-gray-700`} onClick={() => run(async () => setPreview((await api.preview(id, order ?? undefined)).matches))}>Preview</button>
+                    <button disabled={busy} className={`${btn} bg-green-600`} onClick={() => { if (confirm('Generate the bracket? Registration closes and play starts.')) run(async () => { await api.generate(id, order ?? undefined); setOrder(null); setPreview(null) }) }}>Generate & start</button>
+                  </div>
+                  {preview && <div className="mt-4"><BracketView matches={preview} /></div>}
+                </div>
+  )
+
   return (
     <AdminGuard>
       <div className="min-h-screen bg-black p-6 text-white">
@@ -149,7 +173,7 @@ export default function ManageTournamentPage() {
           {t.status !== 'draft' && (
             <div className="mb-6 rounded-lg bg-gray-900 p-4">
               <div className="mb-2 text-sm text-gray-400">Public page: <a className="text-cyan-400 underline" href={`/tournaments/${id}`} target="_blank" rel="noopener noreferrer">/tournaments/{id.slice(0, 8)}…</a></div>
-              <ShareButton title={t.name} text={`Join ${t.name} (${t.game}) at Neo Gaming Cafe!`} />
+              <ShareButton title={t.name} text={`Join ${t.name} (${t.game}) at Neo Gaming Cafe!`} path={`/tournaments/${id}`} />
             </div>
           )}
 
@@ -235,28 +259,10 @@ export default function ManageTournamentPage() {
                 {d.entrants.length === 0 && <p className="text-gray-400">Nobody has registered yet.</p>}
               </div>
 
-              {!started && playing.length >= 2 && (
-                <div className="mt-8 rounded-lg bg-gray-900 p-5">
-                  <h2 className="mb-1 text-xl font-bold">Generate bracket</h2>
-                  <p className="mb-3 text-sm text-gray-400">
-                    {t.seeding === 'manual' ? 'Order the entrants below (top = seed 1).' : 'Seeding is random unless you reorder the list.'}
-                  </p>
-                  <ol className="mb-4 space-y-1">
-                    {sorted.map((e, i) => (
-                      <li key={e.id} className="flex items-center gap-2">
-                        <span className="w-6 text-right text-gray-500">{i + 1}</span>
-                        <span className="flex-1">{e.display_name}</span>
-                        <button className={`${btn} bg-gray-700`} onClick={() => move(i, -1)} aria-label="move up">↑</button>
-                        <button className={`${btn} bg-gray-700`} onClick={() => move(i, 1)} aria-label="move down">↓</button>
-                      </li>
-                    ))}
-                  </ol>
-                  <div className="flex gap-2">
-                    <button disabled={busy} className={`${btn} bg-gray-700`} onClick={() => run(async () => setPreview((await api.preview(id, order ?? undefined)).matches))}>Preview</button>
-                    <button disabled={busy} className={`${btn} bg-green-600`} onClick={() => { if (confirm('Generate the bracket? Registration closes and play starts.')) run(async () => { await api.generate(id, order ?? undefined); setOrder(null); setPreview(null) }) }}>Generate & start</button>
-                  </div>
-                  {preview && <div className="mt-4"><BracketView matches={preview} /></div>}
-                </div>
+              {!started && (
+                <button className={`${btn} mt-6 bg-green-600`} onClick={() => setTab('bracket')}>
+                  {playing.length >= 2 ? 'Next: generate the bracket →' : 'Bracket (needs at least 2 registered entrants)'}
+                </button>
               )}
             </div>
           )}
@@ -278,7 +284,13 @@ export default function ManageTournamentPage() {
               ) : (
                 <BracketView matches={d.matches} actions={actions} />
               )
-            ) : <p className="text-gray-400">The bracket has not been generated yet.</p>
+            ) : playing.length >= 2 ? generatePanel : (
+              <div className="rounded-lg bg-gray-900 p-5">
+                <h2 className="mb-1 text-xl font-bold">Generate bracket</h2>
+                <p className="mb-3 text-gray-400">At least 2 registered players are needed. {playing.length} registered so far; add or promote entrants in the Entrants tab.</p>
+                <button disabled className={`${btn} bg-green-600`}>Generate &amp; start</button>
+              </div>
+            )
           )}
         </div>
       </div>
