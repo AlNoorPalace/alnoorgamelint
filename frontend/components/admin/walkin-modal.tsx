@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { apiFetch, apiError } from '@/lib/api'
+import { MemberSearch, type Member } from './member-search'
 
 export interface WalkinStation { id: string; name: string; type: string; hourly_rate?: number | null; status: 'available' | 'pending' | 'occupied' }
 
@@ -14,7 +15,7 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
   const [member, setMember] = useState(false)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
-  const [username, setUsername] = useState('')
+  const [picked, setPicked] = useState<Member | null>(null)
   const [hours, setHours] = useState(1)
   const [players, setPlayers] = useState(1)
   const [payment, setPayment] = useState('')
@@ -26,14 +27,14 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
   const chosen = free.find((s) => s.id === station)
   const rate = Number(chosen?.hourly_rate ?? 0)
   const estimate = rate * hours * players
-  const ready = !!station && (member ? username.trim() : name.trim())
+  const ready = !!station && (member ? picked : name.trim())
 
   const submit = async () => {
     setBusy(true)
     setError(null)
     try {
       const body: Record<string, unknown> = { station_id: station, duration_hours: hours, user_count: players, start_timer: startTimer }
-      if (member) body.username = username.trim()
+      if (member) body.username = picked!.username
       else { body.guest_name = name.trim(); if (phone.trim()) body.guest_phone = phone.trim() }
       if (payment) body.payment_method = payment
       if (notes.trim()) body.notes = notes.trim()
@@ -73,7 +74,7 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
               ))}
             </div>
             {member ? (
-              <label className="block text-sm text-white">Member username<input className={`${field} mt-1`} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="their username" autoFocus /></label>
+              <div className="text-sm text-white">Member<div className="mt-1"><MemberSearch value={picked} onChange={setPicked} autoFocus /></div></div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-sm text-white">Name<input className={`${field} mt-1`} value={name} onChange={(e) => setName(e.target.value)} autoFocus /></label>

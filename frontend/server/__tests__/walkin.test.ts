@@ -65,3 +65,22 @@ describe('walkIn', () => {
     await expect(run('weird')).rejects.toMatchObject({ status: 500 })
   })
 })
+
+import { searchMembers } from '../services/admin/operations'
+
+describe('searchMembers', () => {
+  it('ignores fragments under 2 characters without asking the database', async () => {
+    const w = fakeDb({ rpcs: { search_members: { data: [{ username: 'x' }] } } })
+    await expect(searchMembers(' a ', w.db)).resolves.toEqual([])
+    expect(rpcArgs(w.log, 'search_members')).toBeUndefined()
+  })
+  it('passes the trimmed text and a small limit, and returns the rows', async () => {
+    const rows = [{ user_id: 'u1', username: 'rahulk', full_name: 'Rahul', phone: null, email: 'r@x.com' }]
+    const w = fakeDb({ rpcs: { search_members: { data: rows } } })
+    await expect(searchMembers(' rahul ', w.db)).resolves.toEqual(rows)
+    expect(rpcArgs(w.log, 'search_members')).toEqual({ p_query: 'rahul', p_limit: 8 })
+  })
+  it('reports a database failure', async () => {
+    await expect(searchMembers('rahul', fakeDb({ rpcs: { search_members: { error: { message: 'x' } } } }).db)).rejects.toMatchObject({ status: 500 })
+  })
+})

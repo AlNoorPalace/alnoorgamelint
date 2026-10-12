@@ -43,6 +43,16 @@ const WALKIN_ERRORS: Record<string, [number, string]> = {
   GUEST_REQUIRED: [400, 'Enter the player\'s name, or a member\'s username'],
 }
 
+export const memberSearchQuery = z.object({ q: z.string().trim().max(60).default('') })
+
+/** Members matching a username, name, email or phone fragment (staff screens only: it returns emails). */
+export async function searchMembers(q: string, db: SupabaseClient = getSupabase()) {
+  if (q.trim().length < 2) return []
+  const { data, error } = await db.rpc('search_members', { p_query: q.trim(), p_limit: 8 })
+  if (error) throw new ApiError(500, 'Failed to search members')
+  return (data ?? []) as { user_id: string; username: string; full_name: string; phone: string | null; email: string | null }[]
+}
+
 /**
  * A player walks in without a reservation: staff pick a free station and the session starts now.
  * The player is a member (looked up by username, so prepaid minutes apply) or a guest with just a name.
