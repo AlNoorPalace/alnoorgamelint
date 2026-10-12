@@ -26,6 +26,7 @@ export interface ReceiptBooking {
   payment_status?: string | null
   payment_method?: string | null
   user_profiles?: { username?: string | null; full_name?: string | null } | null
+  guest_name?: string | null
   stations?: { name?: string | null; type?: string | null; hourly_rate?: number | string | null } | null
 }
 
@@ -96,7 +97,7 @@ export async function buildReceiptPdf(b: ReceiptBooking): Promise<Uint8Array> {
   const heading = (s: string, y: number) => text(s, 50, y, bold, 11, YELLOW)
 
   const c = receiptLines(b)
-  const customer = b.user_profiles?.full_name || b.user_profiles?.username || 'N/A'
+  const customer = b.user_profiles?.full_name || b.user_profiles?.username || b.guest_name || 'N/A'
   const station = b.stations ? `${b.stations.name ?? 'N/A'} (${b.stations.type ?? ''})` : 'Not assigned'
 
   let y = height - 60

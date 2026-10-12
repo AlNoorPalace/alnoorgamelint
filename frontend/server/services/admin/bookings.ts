@@ -92,6 +92,9 @@ export async function stationsWithReservations(date: string, db: SupabaseClient 
   if (stationsRes.error || resRes.error || checkedRes.error || unassignedRes.error) throw new ApiError(500, 'Failed to load reservations')
 
   type Row = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+  // a walk-in guest has no account: show the name staff typed where the profile would be
+  const named = (rows: unknown): Row[] =>
+    ((rows ?? []) as Row[]).map((b) => (b.user_profiles || !b.guest_name ? b : { ...b, user_profiles: { username: b.guest_name, full_name: `${b.guest_name} (walk-in)` } }))
   const stations = (stationsRes.data ?? []) as Row[]
   const byStation = new Map<string, { station: Row; reservations: Row[] }>(
     stations.map((s) => [s.id as string, { station: s, reservations: [] }]),
@@ -99,20 +102,20 @@ export async function stationsWithReservations(date: string, db: SupabaseClient 
   const unassigned: Row[] = []
   const seen = new Set<string>()
 
-  for (const b of (resRes.data ?? []) as Row[]) {
+  for (const b of named(resRes.data)) {
     seen.add(b.id)
     ;(byStation.get(b.station_id)?.reservations ?? unassigned).push(b)
   }
   // Only the most recent check-in per station is shown; older ones are still ONGOING in the database.
   const latest = new Map<string, Row>()
-  for (const b of (checkedRes.data ?? []) as Row[]) {
+  for (const b of named(checkedRes.data)) {
     seen.add(b.id)
     const cur = latest.get(b.station_id)
     if (!b.station_id || !byStation.has(b.station_id)) unassigned.push(b)
     else if (!cur || String(b.checked_in_at) > String(cur.checked_in_at)) latest.set(b.station_id, b)
   }
   latest.forEach((b, stationId) => byStation.get(stationId)!.reservations.push(b))
-  for (const b of (unassignedRes.data ?? []) as Row[]) if (!seen.has(b.id)) unassigned.push(b)
+  for (const b of named(unassignedRes.data)) if (!seen.has(b.id)) unassigned.push(b)
 
   const out = stations.map((s) => byStation.get(s.id as string)!)
   if (unassigned.length) {
