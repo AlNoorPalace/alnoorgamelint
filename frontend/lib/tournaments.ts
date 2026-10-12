@@ -84,7 +84,7 @@ export interface TournamentDetail {
 export async function call<T = unknown>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const { json, ...rest } = init
   const res = await apiFetch(path, json === undefined ? rest : { ...rest, method: rest.method ?? 'POST', body: JSON.stringify(json) })
-  if (!res.ok) throw new Error(await apiError(res, 'Something went wrong'))
+  if (!res.ok) throw Object.assign(new Error(await apiError(res, 'Something went wrong')), { status: res.status })
   return (await res.json().catch(() => ({}))) as T
 }
 

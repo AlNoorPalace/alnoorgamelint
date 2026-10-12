@@ -19,6 +19,7 @@ export default function TournamentPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [needLogin, setNeedLogin] = useState(false) // the server said we are not signed in (expired session)
   const [teamName, setTeamName] = useState('')
   const [mates, setMates] = useState('')
   const [inviteName, setInviteName] = useState('')
@@ -46,7 +47,8 @@ export default function TournamentPage() {
       setNotice((await fn()).message)
       await load()
     } catch (e) {
-      setError((e as Error).message)
+      if ((e as { status?: number }).status === 401) setNeedLogin(true)
+      else setError((e as Error).message)
     } finally {
       setBusy(false)
     }
@@ -103,8 +105,17 @@ export default function TournamentPage() {
 
         {/* sign-up */}
         <section className="mb-8 rounded-lg border border-cp-cyan/20 bg-cp-gray/20 p-5">
-          {!d.me ? (
-            <p>{canRegister ? <>Sign in to register. <Link href="/auth" className="text-cp-cyan underline">Sign in or create an account</Link></> : 'Registration is closed.'}</p>
+          {!d.me || needLogin ? (
+            canRegister ? (
+              <div>
+                <h2 className="mb-1 text-xl font-bold text-cp-yellow">{needLogin ? 'Please log in again to register' : 'Log in or sign up to register'}</h2>
+                <p className="mb-3 text-sm text-gray-400">You need a Neo Gaming Cafe account to join a tournament. It takes a minute.</p>
+                <div className="flex flex-wrap gap-3">
+                  <Link href={`/auth?next=${encodeURIComponent(`/tournaments/${id}`)}`} className={`${btn} bg-cp-cyan text-black`}>Log in</Link>
+                  <Link href={`/auth?mode=signup&next=${encodeURIComponent(`/tournaments/${id}`)}`} className={`${btn} bg-gray-700`}>Create an account</Link>
+                </div>
+              </div>
+            ) : <p>Registration is closed.</p>
           ) : !team ? (
             joined ? (
               <div className="flex flex-wrap items-center gap-3">

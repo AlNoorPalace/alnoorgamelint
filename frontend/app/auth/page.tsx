@@ -7,7 +7,8 @@ import { Footer } from '@/components/ui/footer'
 import { auth, profiles } from '@/lib/supabase'
 
 function AuthPageContent() {
-  const [isLogin, setIsLogin] = useState(true)
+  const searchParams = useSearchParams()
+  const [isLogin, setIsLogin] = useState(searchParams.get('mode') !== 'signup')
   const [emailOrUsername, setEmailOrUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -21,9 +22,11 @@ function AuthPageContent() {
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null)
   const [usernameCheckFailed, setUsernameCheckFailed] = useState(false)
   
-  const searchParams = useSearchParams()
   const router = useRouter()
   const stationName = searchParams.get('name') || 'Gaming Station'
+  // where to go afterwards (only a path on this site, never an outside link)
+  const rawNext = searchParams.get('next')
+  const next = rawNext && /^\/(?![/\\])/.test(rawNext) ? rawNext : null
 
   const checkUsername = async (username: string) => {
     if (username.length < 3) return
@@ -80,12 +83,16 @@ function AuthPageContent() {
         setError(error.message)
       } else {
         if (isLogin) {
-          // Redirect back to booking page after login
-          const params = new URLSearchParams(searchParams.toString())
-          router.push(`/book?${params.toString()}`)
+          if (next) {
+            router.push(next)
+          } else {
+            // Redirect back to booking page after login
+            const params = new URLSearchParams(searchParams.toString())
+            router.push(`/book?${params.toString()}`)
+          }
         } else {
           // Redirect to profile page after signup
-          router.push('/profile')
+          router.push(next ?? '/profile')
         }
       }
     } catch (err) {
@@ -106,7 +113,7 @@ function AuthPageContent() {
               {isLogin ? 'LOGIN' : 'SIGN UP'}
             </h1>
             <p className="text-gray-300">
-              {isLogin ? 'Welcome back!' : 'Create your account'} Book {stationName}
+              {isLogin ? 'Welcome back!' : 'Create your account'} {next ? 'to continue.' : `Book ${stationName}`}
             </p>
           </div>
 
