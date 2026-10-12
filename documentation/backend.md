@@ -88,6 +88,7 @@ Generated from the route files. "staff / admin" means either role; "signed-in us
 | GET | `/api/v1/admin/bookings/calendar` | staff / admin |
 | GET | `/api/v1/admin/bookings/cancelled` | staff / admin |
 | PUT | `/api/v1/admin/bookings/{id}` | staff / admin |
+| GET | `/api/v1/admin/members/search?q=` | staff / admin |
 | POST | `/api/v1/admin/bookings/walk-in` | staff / admin |
 | POST | `/api/v1/admin/bookings/{id}/checkin` | staff / admin |
 | POST | `/api/v1/admin/bookings/{id}/extend-hour` | staff / admin |
@@ -160,3 +161,8 @@ who arrives without a reservation. Body: `station_id`, `duration_hours` (default
 adds `guest_name`, `guest_phone` and `walk_in`, and adds the atomic `walkin_checkin` function. Refusals: station already
 in use (`STATION_BUSY`), or a reservation on that station would overlap the session (`SLOT_TAKEN`). In the admin Bookings
 page use "+ Walk-in check-in" or the button on an available station card.
+
+`GET /api/v1/admin/members/search?q=` finds members by username, name, email or phone (at least 2 characters, up to 8
+results, with email and phone). It calls `search_members` from `sql/setup/11_member_search.sql` (emails live in `auth.users`,
+so the function runs with the owner's rights and is executable by the server only). The walk-in screen uses it as a
+search box with a drop-down.
