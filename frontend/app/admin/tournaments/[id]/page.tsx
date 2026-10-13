@@ -33,6 +33,7 @@ export default function ManageTournamentPage() {
   const [preview, setPreview] = useState<Match[] | null>(null)
   const [view, setView] = useState<'bracket' | 'list'>('bracket')
   const [notice, setNotice] = useState<string | null>(null)
+  const [replaceFromWaitlist, setReplaceFromWaitlist] = useState(true)
   const [rules, setRules] = useState<string | null>(null) // null = not edited
   const [scores, setScores] = useState<Record<string, { a: string; b: string }>>({})
 
@@ -339,16 +340,24 @@ export default function ManageTournamentPage() {
                       ))}
                     </div>
                     <span className="text-sm text-gray-400">{playing.length - noShowCount} here · <span className={noShowCount ? 'text-red-300' : ''}>{noShowCount} no-show</span></span>
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="ml-auto flex flex-wrap items-center gap-3">
+                      {t.waitlist_count > 0 && (
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                          <input type="checkbox" checked={replaceFromWaitlist} onChange={(e) => setReplaceFromWaitlist(e.target.checked)} />
+                          Replace no-shows from the waitlist ({t.waitlist_count} waiting)
+                        </label>
+                      )}
                       <button
                         disabled={busy || noShowCount === 0 || !noResultsYet}
                         title={!noResultsYet ? 'Only possible before any match is live or finished (undo results first)' : noShowCount === 0 ? 'Mark the no-shows first' : 'Re-draw so no-shows play no-shows'}
                         className={`${btn} bg-yellow-700`}
                         onClick={() => {
-                          if (!confirm(`Reshuffle the bracket?\n\n${playing.length - noShowCount} players who are here will play each other, and ${noShowCount} no-shows will play each other. With an odd number, one match mixes the two and you qualify it by hand.`)) return
+                          const swaps = replaceFromWaitlist ? Math.min(noShowCount, t.waitlist_count) : 0
+                          const left = noShowCount - swaps
+                          if (!confirm(`Reshuffle the bracket?\n\n${swaps ? `${swaps} no-show${swaps === 1 ? '' : 's'} will be replaced by the oldest waiting player${swaps === 1 ? '' : 's'}.\n` : ''}${playing.length - noShowCount + swaps} players who are here will play each other${left ? `, and ${left} no-show${left === 1 ? '' : 's'} will play each other. With an odd number, one match mixes the two and you qualify it by hand` : ''}.`)) return
                           run(async () => {
-                            const r = await api.reshuffle(id)
-                            setNotice(`Bracket reshuffled: ${r.present} here, ${r.no_shows} no-show. Matches with a no-show have yellow Qualify buttons.`)
+                            const r = await api.reshuffle(id, replaceFromWaitlist)
+                            setNotice(`Bracket reshuffled: ${r.replaced ? `${r.replaced} replaced from the waitlist, ` : ''}${r.present} here, ${r.no_shows} no-show.${r.no_shows ? ' Matches with a no-show have yellow Qualify buttons.' : ''}`)
                           })
                         }}
                       >Reshuffle for no-shows</button>

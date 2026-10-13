@@ -108,7 +108,8 @@ export const api = {
     return call<{ url: string }>(`${base}/tournaments/${id}/image?kind=${kind}`, { method: 'POST', body })
   },
   removeImage: (id: string, kind: ImageKind) => call(`${base}/tournaments/${id}/image?kind=${kind}`, { method: 'DELETE' }),
-  reshuffle: (id: string) => call<{ reshuffled: boolean; no_shows: number; present: number }>(`${base}/tournaments/${id}/bracket/reshuffle`, { method: 'POST' }),
+  reshuffle: (id: string, replaceFromWaitlist = true) =>
+    call<{ reshuffled: boolean; replaced: number; no_shows: number; present: number }>(`${base}/tournaments/${id}/bracket/reshuffle`, { json: { replace_from_waitlist: replaceFromWaitlist } }),
   removeEntrant: (id: string, entrantId: string) => call(`${base}/tournaments/${id}/entrants/${entrantId}`, { method: 'DELETE' }),
   preview: (id: string, order?: string[]) => call<{ order: { id: string; seed: number; display_name: string }[]; matches: Match[] }>(`${base}/tournaments/${id}/bracket/preview`, { json: { order } }),
   generate: (id: string, order?: string[]) => call<TournamentDetail>(`${base}/tournaments/${id}/bracket`, { json: { order } }),

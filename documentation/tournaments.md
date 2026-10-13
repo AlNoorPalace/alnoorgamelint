@@ -121,6 +121,9 @@ Run `sql/setup/12_tournament_noshow.sql` (adds `tournament_entrants.no_show` and
   Byes go to players who are here. With an odd number of no-shows one match mixes the two; matches that involve a no-show
   show yellow **Qualify** buttons so staff decide who goes through (recorded as a walkover). Only possible before any match
   is live or finished (undo results first).
+- **Replace no-shows from the waitlist** (a tick box next to Reshuffle, on by default when people are waiting): each no-show is
+  withdrawn and the oldest waiting player takes their place, one for one, before the draw. If fewer people are waiting than
+  there are no-shows, the rest still play each other. Nothing changes if a result already exists, or if saving the bracket fails.
 - You do not need a full field to **Generate bracket**: with 2 or more registered entrants, empty places become byes. The
   Bracket tab also has a **Match list** view showing who plays whom, round by round.
 
