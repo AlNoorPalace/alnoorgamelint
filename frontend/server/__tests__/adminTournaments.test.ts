@@ -343,7 +343,8 @@ import { reshuffleBracket } from '../services/admin/tournaments'
 describe('no-show reshuffle and contacts', () => {
   const started = { ...T, status: 'active', started_at: '2026-10-31', registered_count: 4 }
   const entrants = [
-    { id: id(1), no_show: false }, { id: id(2), no_show: true }, { id: id(3), no_show: false }, { id: id(4), no_show: true },
+    { id: id(1), no_show: false, status: 'registered', registered_at: '1' }, { id: id(2), no_show: true, status: 'registered', registered_at: '2' },
+    { id: id(3), no_show: false, status: 'registered', registered_at: '3' }, { id: id(4), no_show: true, status: 'checked_in', registered_at: '4' },
   ]
   const world = (over: Record<string, unknown> = {}, rpc: object = { data: 4 }) =>
     fakeDb({ tables: { tournament_overview: { data: { ...started, ...over } }, tournament_entrants: { data: entrants }, tournament_matches: { data: [] } }, rpcs: { save_bracket: rpc } })
@@ -351,7 +352,7 @@ describe('no-show reshuffle and contacts', () => {
   it('draws no-shows against no-shows and saves the new bracket', async () => {
     const w = world()
     const out = await reshuffleBracket('t1', w.db, () => 0.4)
-    expect(out).toEqual({ reshuffled: true, no_shows: 2, present: 2 })
+    expect(out).toEqual({ reshuffled: true, replaced: 0, no_shows: 2, present: 2 })
     const saved = rpcArgs(w.log, 'save_bracket') as { p_matches: { round: number; entrant1_id: string | null; entrant2_id: string | null }[]; p_seeds: { id: string }[] }
     const round1 = saved.p_matches.filter((m) => m.round === 1)
     const pair = (m: { entrant1_id: string | null; entrant2_id: string | null }) => [m.entrant1_id, m.entrant2_id].sort()
@@ -380,5 +381,83 @@ describe('no-show reshuffle and contacts', () => {
     const without = await getTournamentDetail('t1', plain.db)
     expect(without.entrants[0]).not.toHaveProperty('email')
     expect(rpcArgs(plain.log, 'tournament_contacts')).toBeUndefined()
+  })
+
+  // an entrants table that behaves like the real one: filters by status and applies updates
+  const statefulEntrants = (initial: object[]) => {
+    const rows = initial.map((r) => ({ ...r })) as { id: string; status: string }[]
+    return (calls: Call[]) => {
+      const inCall = (col: string) => calls.find((c) => c.method === 'in' && c.args[0] === col)?.args[1] as string[] | undefined
+      if (has(calls, 'update')) {
+        const set = argOf(calls, 'update') as object
+        rows.filter((r) => inCall('id')?.includes(r.id)).forEach((r) => Object.assign(r, set))
+        return {}
+      }
+      const statuses = inCall('status')
+      return { data: rows.filter((r) => !statuses || statuses.includes(r.status)) }
+    }
+  }
+
+  describe('replacing no-shows from the waitlist', () => {
+    const waiting = [
+      { id: id(7), no_show: false, status: 'waitlist', registered_at: '7' },
+      { id: id(6), no_show: false, status: 'waitlist', registered_at: '6' },
+      { id: id(8), no_show: false, status: 'waitlist', registered_at: '8' },
+    ]
+    const w = (over: { matches?: object[]; rpc?: object } = {}) =>
+      fakeDb({
+        tables: {
+          tournament_overview: { data: started },
+          tournament_entrants: statefulEntrants([...entrants, ...waiting]),
+          tournament_matches: { data: over.matches ?? [] },
+        },
+        rpcs: { save_bracket: over.rpc ?? { data: 4 } },
+      })
+    const updates = (log: ReturnType<typeof fakeDb>['log']) =>
+      log.filter((e) => e.table === 'tournament_entrants' && has(e.calls, 'update')).map((e) => ({ set: argOf(e.calls, 'update'), ids: e.calls.find((c) => c.method === 'in')?.args[1] }))
+
+    it('swaps each no-show for the oldest waiting player, then draws with the new field', async () => {
+      const f = w()
+      const out = await reshuffleBracket('t1', f.db, () => 0.4, { replaceFromWaitlist: true })
+      expect(out).toEqual({ reshuffled: true, replaced: 2, no_shows: 0, present: 4 })
+      expect(updates(f.log)).toEqual([
+        { set: { status: 'withdrawn' }, ids: [id(2), id(4)] },
+        { set: { status: 'registered' }, ids: [id(6), id(7)] }, // 6 signed up before 7; 8 stays waiting
+      ])
+      const saved = rpcArgs(f.log, 'save_bracket') as { p_seeds: { id: string }[] }
+      expect(saved.p_seeds.map((x) => x.id).sort()).toEqual([id(1), id(3), id(6), id(7)].sort())
+    })
+    it('swaps as many as the waitlist allows and pairs the remaining no-shows together', async () => {
+      const f = fakeDb({
+        tables: {
+          tournament_overview: { data: started },
+          tournament_entrants: statefulEntrants([...entrants, waiting[1]]), // one waiting player, two no-shows
+          tournament_matches: { data: [] },
+        },
+        rpcs: { save_bracket: { data: 4 } },
+      })
+      const out = await reshuffleBracket('t1', f.db, () => 0.4, { replaceFromWaitlist: true })
+      expect(out).toMatchObject({ replaced: 1, no_shows: 1 })
+    })
+    it('leaves the waitlist alone when the option is off', async () => {
+      const f = w()
+      const out = await reshuffleBracket('t1', f.db, () => 0.4, { replaceFromWaitlist: false })
+      expect(out).toMatchObject({ replaced: 0, no_shows: 2 })
+      expect(updates(f.log)).toEqual([])
+    })
+    it('changes nobody when a result already exists', async () => {
+      const f = w({ matches: [{ id: 'm1' }] })
+      await expect(reshuffleBracket('t1', f.db, () => 0.4, { replaceFromWaitlist: true })).rejects.toMatchObject({ status: 400, message: expect.stringContaining('already been played') })
+      expect(updates(f.log)).toEqual([])
+    })
+    it('puts everyone back when saving the new bracket fails', async () => {
+      const f = w({ rpc: { error: { message: 'weird' } } })
+      await expect(reshuffleBracket('t1', f.db, () => 0.4, { replaceFromWaitlist: true })).rejects.toMatchObject({ status: 500 })
+      const u = updates(f.log)
+      expect(u.slice(-2)).toEqual([
+        { set: { status: 'registered' }, ids: [id(2), id(4)] },
+        { set: { status: 'waitlist' }, ids: [id(6), id(7)] },
+      ])
+    })
   })
 })

@@ -363,17 +363,72 @@ export async function previewBracket(tournamentId: string, order: string[] | und
  * After no-shows are marked: draws the bracket again so players who are here meet each other and no-shows meet
  * no-shows (see noShowOrder). Only allowed while no real result is entered; the database refuses otherwise.
  */
-export async function reshuffleBracket(tournamentId: string, db: SupabaseClient = getSupabase(), rng: () => number = Math.random) {
+export const reshuffleSchema = z.object({ replace_from_waitlist: z.boolean().default(true) }).default({ replace_from_waitlist: true })
+
+export async function reshuffleBracket(
+  tournamentId: string,
+  db: SupabaseClient = getSupabase(),
+  rng: () => number = Math.random,
+  opts: { replaceFromWaitlist?: boolean } = {},
+) {
   const t = await loadTournament(db, tournamentId)
   if (!hasStarted(t)) throw badRequest('Generate the bracket first')
   if (t.tournament_type !== 'knockout') throw badRequest('Only a knockout bracket can be reshuffled')
-  const { data, error } = await db.from('tournament_entrants').select('id, no_show').eq('tournament_id', tournamentId).in('status', PLAYING)
+  const { data, error } = await db
+    .from('tournament_entrants')
+    .select('id, no_show, status, registered_at')
+    .eq('tournament_id', tournamentId)
+    .in('status', [...PLAYING, 'waitlist'])
   if (error) throw fail('Failed to load the entrants', error)
-  const entrants = (data ?? []) as Row[]
-  if (entrants.length < 2) throw badRequest('At least 2 registered entrants are needed to make a bracket')
-  const order = noShowOrder(entrants.map((e) => ({ id: e.id as string, absent: e.no_show === true })), rng)
-  await startBracket(tournamentId, order, db)
-  return { reshuffled: true, no_shows: entrants.filter((e) => e.no_show === true).length, present: entrants.filter((e) => e.no_show !== true).length }
+  const all = ((data ?? []) as Row[]).sort((x, y) => String(x.registered_at).localeCompare(String(y.registered_at)))
+  let playing = all.filter((e) => PLAYING.includes(e.status))
+  const waiting = all.filter((e) => e.status === 'waitlist')
+  if (playing.length < 2) throw badRequest('At least 2 registered entrants are needed to make a bracket')
+
+  // Players waiting for a place take the place of no-shows, one for one, oldest first.
+  let swapOut: Row[] = []
+  let swapIn: Row[] = []
+  if (opts.replaceFromWaitlist) {
+    const k = Math.min(playing.filter((e) => e.no_show === true).length, waiting.length)
+    swapOut = playing.filter((e) => e.no_show === true).slice(0, k)
+    swapIn = waiting.slice(0, k)
+  }
+
+  if (swapOut.length) {
+    // refuse before touching anyone if a real result already exists
+    const { data: played, error: playedError } = await db.from('tournament_matches').select('id').eq('tournament_id', tournamentId).in('status', ['live', 'completed']).limit(1)
+    if (playedError) throw fail('Failed to check the matches', playedError)
+    if (played?.length) throw mapRpcError({ message: 'ALREADY_STARTED' }, 'Failed to reshuffle', TOURNAMENT_ERRORS)
+
+    const out = swapOut.map((e) => e.id as string)
+    const inn = swapIn.map((e) => e.id as string)
+    const first = await db.from('tournament_entrants').update({ status: 'withdrawn' }).in('id', out)
+    if (first.error) throw fail('Failed to replace the no-shows', first.error)
+    const second = await db.from('tournament_entrants').update({ status: 'registered' }).in('id', inn)
+    if (second.error) {
+      await db.from('tournament_entrants').update({ status: 'registered' }).in('id', out)
+      throw fail('Failed to bring in the waitlist', second.error)
+    }
+    playing = [...playing.filter((e) => !out.includes(e.id)), ...swapIn.map((e) => ({ ...e, status: 'registered', no_show: false }))]
+  }
+
+  const order = noShowOrder(playing.map((e) => ({ id: e.id as string, absent: e.no_show === true })), rng)
+  try {
+    await startBracket(tournamentId, order, db)
+  } catch (e) {
+    // put everyone back as they were so a failed reshuffle changes nothing
+    if (swapOut.length) {
+      await db.from('tournament_entrants').update({ status: 'registered' }).in('id', swapOut.map((x) => x.id as string))
+      await db.from('tournament_entrants').update({ status: 'waitlist' }).in('id', swapIn.map((x) => x.id as string))
+    }
+    throw e
+  }
+  return {
+    reshuffled: true,
+    replaced: swapOut.length,
+    no_shows: playing.filter((e) => e.no_show === true).length,
+    present: playing.filter((e) => e.no_show !== true).length,
+  }
 }
 
 export async function startBracket(tournamentId: string, order: string[] | undefined, db: SupabaseClient = getSupabase()) {
