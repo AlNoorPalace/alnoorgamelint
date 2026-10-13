@@ -163,3 +163,24 @@ describe('public detail and views', () => {
     await expect(recordView('t1', 'visitor-123', fakeDb({ rpcs: { record_tournament_view: { error: { message: 'INVALID_VISITOR' } } } }).db)).rejects.toMatchObject({ status: 400 })
   })
 })
+
+describe('public waitlist', () => {
+  it('lists the waiting players oldest first, outside the bracket entrants, and tells a waiting player their number', async () => {
+    const rows = [
+      { id: 'e1', display_name: 'In', user_id: 'u1', status: 'registered', seed: null, team_id: null, registered_at: '2026-10-01T10:00:00Z' },
+      { id: 'e3', display_name: 'Third', user_id: 'u3', status: 'waitlist', seed: null, team_id: null, registered_at: '2026-10-03T10:00:00Z' },
+      { id: 'e2', display_name: 'Second', user_id: 'u2', status: 'waitlist', seed: null, team_id: null, registered_at: '2026-10-02T10:00:00Z' },
+    ]
+    const mk = () => fakeDb({ tables: {
+      tournament_overview: { data: { ...T, waitlist_count: 2 } },
+      tournament_entrants: (calls: Call[]) => has(calls, 'maybeSingle') ? { data: { id: 'e3', status: 'waitlist', payment_status: 'NOT_REQUIRED' } } : { data: rows },
+      tournament_matches: { data: [] },
+      tournament_team_members: { data: [] },
+    } }).db
+    const out = await getPublicTournament('t1', 'u3', mk())
+    expect(out.waitlist).toEqual([{ position: 1, id: 'e2', display_name: 'Second' }, { position: 2, id: 'e3', display_name: 'Third' }])
+    expect(out.my_waitlist_position).toBe(2)
+    expect(JSON.stringify(out.waitlist)).not.toMatch(/user_id|u2|u3/)
+    expect((await getPublicTournament('t1', null, mk())).my_waitlist_position).toBeNull()
+  })
+})

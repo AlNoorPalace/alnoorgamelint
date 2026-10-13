@@ -119,7 +119,7 @@ export default function TournamentPage() {
           ) : !team ? (
             joined ? (
               <div className="flex flex-wrap items-center gap-3">
-                <span>{d.me.entrant!.status === 'waitlist' ? "You're on the waitlist." : "You're registered ✓"}{t.entry_fee > 0 && d.me.entrant!.payment_status === 'PENDING' ? ` Pay ₹${t.entry_fee} at the counter.` : ''}</span>
+                <span>{d.me.entrant!.status === 'waitlist' ? `You're on the waitlist${d.my_waitlist_position ? `, number ${d.my_waitlist_position}` : ''}. You move up when someone withdraws.` : "You're registered ✓"}{t.entry_fee > 0 && d.me.entrant!.payment_status === 'PENDING' ? ` Pay ₹${t.entry_fee} at the counter.` : ''}</span>
                 {!started && <button className={`${btn} bg-gray-700`} disabled={busy} onClick={() => act(() => publicApi.withdraw(id))}>Withdraw</button>}
               </div>
             ) : canRegister ? (
@@ -132,7 +132,7 @@ export default function TournamentPage() {
             <div>
               <h2 className="mb-1 text-xl font-bold text-cp-yellow">Your team: {myTeam.name}</h2>
               <p className="mb-3 text-sm text-gray-400">
-                {myTeam.entrant ? (myTeam.entrant.status === 'waitlist' ? 'Complete. On the waitlist.' : 'Complete and registered ✓') : `Entered once all ${t.team_size} players accept.`}
+                {myTeam.entrant ? (myTeam.entrant.status === 'waitlist' ? `Complete. On the waitlist${d.my_waitlist_position ? `, number ${d.my_waitlist_position}` : ''}.` : 'Complete and registered ✓') : `Entered once all ${t.team_size} players accept.`}
                 {t.entry_fee > 0 && myTeam.entrant?.payment_status === 'PENDING' ? ` Pay ₹${t.entry_fee} at the counter.` : ''}
               </p>
               <ul className="mb-3 space-y-1">
@@ -198,14 +198,32 @@ export default function TournamentPage() {
           <section>
             <h2 className="mb-3 text-2xl font-bold text-cp-yellow">Who's in ({d.entrants.filter((e) => e.status !== 'waitlist').length})</h2>
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {d.entrants.map((e) => (
+              {d.entrants.filter((e) => e.status !== 'waitlist').map((e) => (
                 <li key={e.id} className="rounded bg-cp-gray/20 px-4 py-2">
-                  {e.display_name}{e.status === 'waitlist' && <span className="ml-2 text-xs text-yellow-400">waitlist</span>}
+                  {e.display_name}
                   {e.team_members.length > 0 && <div className="text-xs text-gray-400">{e.team_members.map((m) => m.name).join(', ')}</div>}
                 </li>
               ))}
-              {d.entrants.length === 0 && <li className="text-gray-400">Be the first to register!</li>}
+              {d.entrants.filter((e) => e.status !== 'waitlist').length === 0 && <li className="text-gray-400">Be the first to register!</li>}
             </ul>
+          </section>
+        )}
+
+        {d.waitlist.length > 0 && (
+          <section className="mt-8">
+            <h2 className="mb-1 text-2xl font-bold text-cp-yellow">Waitlist ({d.waitlist.length})</h2>
+            <p className="mb-3 text-sm text-gray-400">
+              Places are given out in this order if someone withdraws{started ? '' : ' before the bracket is made'}.
+              {started && ' The bracket is already made, so the waitlist is closed.'}
+            </p>
+            <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {d.waitlist.map((w) => (
+                <li key={w.id} className={`flex items-center gap-3 rounded px-4 py-2 ${w.position === d.my_waitlist_position ? 'border border-cp-cyan bg-cp-cyan/10' : 'bg-cp-gray/20'}`}>
+                  <span className="w-6 text-right text-yellow-400">{w.position}</span>
+                  <span className="truncate">{w.display_name}{w.position === d.my_waitlist_position && <span className="ml-2 text-xs text-cp-cyan">you</span>}</span>
+                </li>
+              ))}
+            </ol>
           </section>
         )}
       </main>

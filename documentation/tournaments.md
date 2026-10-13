@@ -85,7 +85,7 @@ bracket or table with Won / Lost / no-show buttons, undo, champion banner). The 
 | `DELETE /tournaments/{id}/teams/{teamId}` | member | Decline or leave; the captain leaving disbands the team |
 | `GET /tournaments/invitations` | user | Pending invitations for open tournaments |
 
-A team takes a place (and goes to the waitlist when full) only once all `team_size` players have accepted. A member leaving
+The tournament page shows the **waitlist** publicly (numbered, oldest sign-up first) and tells a waiting player their number; it stays visible after the bracket is made, marked closed. A team takes a place (and goes to the waitlist when full) only once all `team_size` players have accepted. A member leaving
 removes the team's place. Registration must be `open`, before `registration_closes_at`, and before the bracket exists.
 Entry fees are shown only; staff mark entrants paid in the admin screen.
 

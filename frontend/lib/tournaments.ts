@@ -150,6 +150,8 @@ export interface PublicDetail {
   rounds: number
   standings: StandingRow[]
   champion_name: string | null
+  waitlist: { position: number; id: string; display_name: string }[]
+  my_waitlist_position: number | null
   me: { entrant: { id: string; status: string; payment_status: string } | null; teams: MyTeam[] } | null
 }
 

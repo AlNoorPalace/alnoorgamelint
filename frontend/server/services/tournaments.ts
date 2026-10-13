@@ -79,7 +79,13 @@ export async function getPublicTournament(id: string, userId: string | null, db:
   await loadOpen(db, id)
   const d = await getTournamentDetail(id, db)
   const t = d.tournament
+  const waitlist = d.entrants
+    .filter((e: Row) => e.status === 'waitlist')
+    .sort((a: Row, b: Row) => String(a.registered_at).localeCompare(String(b.registered_at)))
   const me = userId ? await describeMe(db, id, userId) : null
+  // tell a waitlisted player where they stand (a team's place is its team entrant's)
+  const myEntrantIds = new Set<string>([me?.entrant?.id, ...((me?.teams ?? []) as Row[]).map((tm) => tm.entrant?.id)].filter(Boolean) as string[])
+  const myWait = waitlist.findIndex((e: Row) => myEntrantIds.has(e.id))
   return {
     tournament: {
       id: t.id, name: t.name, game: t.game, platform: t.platform, status: t.status, tournament_type: t.tournament_type,
@@ -96,11 +102,14 @@ export async function getPublicTournament(id: string, userId: string | null, db:
         id: e.id, display_name: e.display_name, seed: e.seed, status: e.status,
         team_members: (e.team_members ?? []).filter((m: Row) => m.status === 'accepted').map((m: Row) => ({ name: m.name })),
       })),
+    // the waiting list, in the order places will be given out (oldest sign-up first)
+    waitlist: waitlist.map((e: Row, i: number) => ({ position: i + 1, id: e.id, display_name: e.display_name })),
     matches: d.matches,
     rounds: d.rounds,
     standings: d.standings,
     champion_name: d.champion_name,
     me,
+    my_waitlist_position: myWait >= 0 ? myWait + 1 : null,
   }
 }
 
