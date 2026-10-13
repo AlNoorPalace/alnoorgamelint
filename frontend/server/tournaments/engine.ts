@@ -74,6 +74,49 @@ export function shuffle<T>(items: T[], rng: () => number = Math.random): T[] {
 }
 
 /**
+ * Re-draws a single-elimination bracket after some players failed to turn up: players who are here play each other,
+ * no-shows are paired with other no-shows (and stay together in later rounds where the bracket allows), so the
+ * absent ones do not eat up the matches of people who came. At most one pair is mixed (when the numbers are odd);
+ * staff qualify those by hand. Byes go to players who are here first. Returns entrant ids in seed order, ready for
+ * generateSingleElimination.
+ */
+export function noShowOrder(entrants: { id: string; absent: boolean }[], rng: () => number = Math.random): string[] {
+  assertEntrants(entrants.map((e) => e.id))
+  const n = entrants.length
+  const size = nextPowerOfTwo(n)
+  const present = shuffle(entrants.filter((e) => !e.absent).map((e) => e.id), rng)
+  const absent = shuffle(entrants.filter((e) => e.absent).map((e) => e.id), rng)
+
+  const order = seedOrder(size)
+  const byes: number[] = [] // the seat that is alone against an empty slot
+  const real: [number, number][] = [] // pairs of seats with a player on both sides
+  for (let k = 0; k < size / 2; k++) {
+    const [a, b] = [order[2 * k], order[2 * k + 1]]
+    if (a > n) byes.push(b)
+    else if (b > n) byes.push(a)
+    else real.push([a, b])
+  }
+
+  const seat: string[] = new Array(n)
+  // byes first go to players who came
+  for (const seatNo of byes) seat[seatNo - 1] = (present.length ? present : absent).shift() as string
+
+  // the rest fill the real pairs: present with present at the front, no-shows with no-shows at the back
+  const absentPairs = Math.floor(absent.length / 2)
+  const presentPairs = Math.floor(present.length / 2)
+  real.forEach(([a, b], i) => {
+    let first: string
+    let second: string
+    if (i >= real.length - absentPairs) [first, second] = [absent.shift() as string, absent.shift() as string]
+    else if (i < presentPairs) [first, second] = [present.shift() as string, present.shift() as string]
+    else [first, second] = [present.shift() as string, absent.shift() as string] // the one mixed pair
+    seat[a - 1] = first
+    seat[b - 1] = second
+  })
+  return seat
+}
+
+/**
  * Single elimination. `entrantIds` must already be in seed order (index 0 = seed 1). When the field is not a
  * power of two the top seeds get byes; a bye is stored as a match (so the bracket still draws) with its winner
  * already placed in the next round.

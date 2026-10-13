@@ -110,6 +110,20 @@ Every public tournament page has Share / Copy link / WhatsApp buttons, and the p
 banner or poster) so a shared link shows a preview. Set `NEXT_PUBLIC_SITE_URL` (for example `https://neogamingcafe.vercel.app`)
 so the preview image links are absolute on every deployment.
 
+## No-shows, contacts and reshuffle
+
+Run `sql/setup/12_tournament_noshow.sql` (adds `tournament_entrants.no_show` and the server-only `tournament_contacts` function).
+
+- The admin tournament page shows each player's **phone and email** (a team shows its captain's; walk-ins have none) in the
+  entrants list and on every match, with **Mark no-show / Mark present** buttons. A no-show keeps their place until staff act.
+- **Reshuffle for no-shows** (Bracket tab, `POST /api/v1/admin/tournaments/{id}/bracket/reshuffle`, admin): re-draws the
+  bracket so players who are here meet each other and no-shows meet no-shows, kept together so their winners keep meeting.
+  Byes go to players who are here. With an odd number of no-shows one match mixes the two; matches that involve a no-show
+  show yellow **Qualify** buttons so staff decide who goes through (recorded as a walkover). Only possible before any match
+  is live or finished (undo results first).
+- You do not need a full field to **Generate bracket**: with 2 or more registered entrants, empty places become byes. The
+  Bracket tab also has a **Match list** view showing who plays whom, round by round.
+
 ## Status
 
 1. **Foundation**: database, bracket and standings engine, tests. Done.

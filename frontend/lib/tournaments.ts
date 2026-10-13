@@ -36,6 +36,9 @@ export interface Entrant {
   seed: number | null
   status: 'registered' | 'waitlist' | 'checked_in' | 'withdrawn' | 'disqualified'
   payment_status: 'NOT_REQUIRED' | 'PENDING' | 'PAID'
+  no_show?: boolean
+  email?: string | null // staff screens only
+  phone?: string | null
   team_id?: string | null
   team_members: { user_id: string; name: string; status: string }[]
 }
@@ -105,6 +108,7 @@ export const api = {
     return call<{ url: string }>(`${base}/tournaments/${id}/image?kind=${kind}`, { method: 'POST', body })
   },
   removeImage: (id: string, kind: ImageKind) => call(`${base}/tournaments/${id}/image?kind=${kind}`, { method: 'DELETE' }),
+  reshuffle: (id: string) => call<{ reshuffled: boolean; no_shows: number; present: number }>(`${base}/tournaments/${id}/bracket/reshuffle`, { method: 'POST' }),
   removeEntrant: (id: string, entrantId: string) => call(`${base}/tournaments/${id}/entrants/${entrantId}`, { method: 'DELETE' }),
   preview: (id: string, order?: string[]) => call<{ order: { id: string; seed: number; display_name: string }[]; matches: Match[] }>(`${base}/tournaments/${id}/bracket/preview`, { json: { order } }),
   generate: (id: string, order?: string[]) => call<TournamentDetail>(`${base}/tournaments/${id}/bracket`, { json: { order } }),

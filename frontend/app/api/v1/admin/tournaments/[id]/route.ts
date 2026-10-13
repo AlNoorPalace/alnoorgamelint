@@ -9,7 +9,7 @@ type Ctx = { params: { id: string } }
 
 export const GET = route(async (req, ctx: Ctx) => {
   await requireRole(req, ['staff', 'admin'])
-  return getTournamentDetail(uuidParam.parse(ctx.params.id))
+  return getTournamentDetail(uuidParam.parse(ctx.params.id), undefined, { contacts: true })
 })
 
 export const PUT = route(async (req, ctx: Ctx) => {

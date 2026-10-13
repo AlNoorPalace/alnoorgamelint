@@ -31,6 +31,8 @@ export default function ManageTournamentPage() {
   const [newName, setNewName] = useState('')
   const [order, setOrder] = useState<string[] | null>(null)
   const [preview, setPreview] = useState<Match[] | null>(null)
+  const [view, setView] = useState<'bracket' | 'list'>('bracket')
+  const [notice, setNotice] = useState<string | null>(null)
   const [rules, setRules] = useState<string | null>(null) // null = not edited
   const [scores, setScores] = useState<Record<string, { a: string; b: string }>>({})
 
@@ -75,6 +77,12 @@ export default function ManageTournamentPage() {
   const started = d.matches.length > 0
   const playing = d.entrants.filter((e) => ['registered', 'checked_in'].includes(e.status))
   const sorted = (order ? order.map((x) => d.entrants.find((e) => e.id === x)).filter(Boolean) as Entrant[] : playing)
+  const byId = new Map(d.entrants.map((e) => [e.id, e]))
+  const noShowCount = playing.filter((e) => e.no_show).length
+  const noResultsYet = started && !d.matches.some((m) => m.status === 'completed' || m.status === 'live')
+  const matchesWithNoShow = d.matches.filter((m) => m.status !== 'completed' && m.status !== 'bye' && [m.entrant1_id, m.entrant2_id].some((x) => x && byId.get(x)?.no_show)).length
+  const toggleNoShow = (e: Entrant) => run(() => api.updateEntrant(id, e.id, { no_show: !e.no_show }))
+  const fieldSize = (n: number) => { let k = 1; while (k < n) k *= 2; return k }
   const move = (i: number, dir: -1 | 1) => {
     const ids = sorted.map((e) => e.id)
     const j = i + dir
@@ -92,11 +100,46 @@ export default function ManageTournamentPage() {
       return api.result(m.id, body)
     })
 
+  // under each player in a match: how to reach them, and whether they turned up
+  const sideInfo = (eid: string | null, _slot: 1 | 2, m: Match) => {
+    const e = eid ? byId.get(eid) : undefined
+    if (!e) return null
+    const open = m.status !== 'completed' && m.status !== 'bye' && t.status !== 'completed'
+    return (
+      <div className="space-y-1 px-3 pb-2 text-[11px] text-gray-400">
+        {e.phone || e.email ? (
+          <div className="flex flex-col">
+            {e.phone && <a className="text-cyan-300 hover:underline" href={`tel:${e.phone}`}>📞 {e.phone}</a>}
+            {e.email && <a className="truncate text-cyan-300 hover:underline" href={`mailto:${e.email}`}>✉ {e.email}</a>}
+          </div>
+        ) : <div className="italic">No contact details</div>}
+        <div className="flex items-center gap-2">
+          {e.no_show && <span className="rounded bg-red-900/70 px-1.5 py-0.5 font-semibold text-red-300">NO-SHOW</span>}
+          {open && <button disabled={busy} className="rounded bg-gray-700 px-2 py-0.5 text-gray-200 hover:bg-gray-600 disabled:opacity-50" onClick={() => toggleNoShow(e)}>{e.no_show ? 'Mark present' : 'Mark no-show'}</button>}
+        </div>
+      </div>
+    )
+  }
+
   const actions = (m: Match) => {
     if (t.status !== 'active' || m.status === 'bye' || m.status === 'pending') {
       return m.status === 'completed' && t.status !== 'completed' ? <button className={`${btn} bg-gray-700`} disabled={busy} onClick={() => run(() => api.undo(m.id))}>Undo</button> : null
     }
     if (m.status === 'completed') return <button className={`${btn} bg-gray-700`} disabled={busy} onClick={() => run(() => api.undo(m.id))}>Undo result</button>
+    const absent1 = !!(m.entrant1_id && byId.get(m.entrant1_id)?.no_show)
+    const absent2 = !!(m.entrant2_id && byId.get(m.entrant2_id)?.no_show)
+    if (absent1 || absent2) {
+      return (
+        <div className="space-y-2">
+          <div className="text-xs text-yellow-300">{absent1 && absent2 ? 'Both are no-shows. Qualify one by hand.' : 'One player is a no-show. Qualify by hand, or mark them present.'}</div>
+          <div className="flex flex-wrap gap-1">
+            {[[m.entrant1_id, m.entrant1_name], [m.entrant2_id, m.entrant2_name]].map(([eid, name]) => (
+              <button key={eid} className={`${btn} flex-1 truncate bg-yellow-700`} disabled={busy} onClick={() => report(m, eid, true)}>Qualify {name}</button>
+            ))}
+          </div>
+        </div>
+      )
+    }
     const s = scores[m.id] ?? { a: '', b: '' }
     const set = (k: 'a' | 'b', v: string) => setScores((p) => ({ ...p, [m.id]: { ...s, [k]: v } }))
     return (
@@ -130,6 +173,7 @@ export default function ManageTournamentPage() {
     <div className="rounded-lg bg-gray-900 p-5">
                   <h2 className="mb-1 text-xl font-bold">Generate bracket</h2>
                   <p className="mb-3 text-sm text-gray-400">
+                    {playing.length} registered of {t.max_players}. The field does not have to be full: empty places become byes ({fieldSize(playing.length) - playing.length} bye{fieldSize(playing.length) - playing.length === 1 ? '' : 's'}, given to the top seeds).{' '}
                     {t.seeding === 'manual' ? 'Order the entrants below (top = seed 1).' : 'Seeding is random unless you reorder the list.'}
                   </p>
                   <ol className="mb-4 space-y-1">
@@ -236,9 +280,14 @@ export default function ManageTournamentPage() {
                     <span className="w-8 text-gray-500">{e.seed ?? '–'}</span>
                     <div className="min-w-[10rem] flex-1">
                       <div className="font-medium">{e.display_name}</div>
+                      {(e.phone || e.email) && <div className="text-xs text-cyan-300">{[e.phone, e.email].filter(Boolean).join(' · ')}</div>}
                       {e.team_members.length > 0 && <div className="text-xs text-gray-400">{e.team_members.map((m) => `${m.name}${m.status !== 'accepted' ? ` (${m.status})` : ''}`).join(', ')}</div>}
                     </div>
                     <span className="text-xs uppercase text-gray-400">{e.status.replace('_', ' ')}</span>
+                    {e.no_show && <span className="rounded bg-red-900/70 px-1.5 py-0.5 text-xs font-semibold text-red-300">NO-SHOW</span>}
+                    {!['withdrawn', 'disqualified', 'waitlist'].includes(e.status) && t.status !== 'completed' && (
+                      <button disabled={busy} className={`${btn} bg-gray-700`} onClick={() => toggleNoShow(e)}>{e.no_show ? 'Mark present' : 'Mark no-show'}</button>
+                    )}
                     {t.entry_fee > 0 && (
                       <button disabled={busy} className={`${btn} ${e.payment_status === 'PAID' ? 'bg-green-900 text-green-300' : 'bg-gray-700'}`}
                         onClick={() => run(() => api.updateEntrant(id, e.id, { payment_status: e.payment_status === 'PAID' ? 'PENDING' : 'PAID' }))}>
@@ -276,13 +325,60 @@ export default function ManageTournamentPage() {
                     <div key={r}>
                       <h3 className="mb-3 font-semibold text-cyan-400">Round {r}</h3>
                       <div className="flex flex-wrap gap-4">
-                        {d.matches.filter((m) => m.round === r).map((m) => <MatchCard key={m.id} m={m} actions={actions} />)}
+                        {d.matches.filter((m) => m.round === r).map((m) => <MatchCard key={m.id} m={m} actions={actions} side={sideInfo} />)}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <BracketView matches={d.matches} actions={actions} />
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-900 p-3">
+                    <div className="flex overflow-hidden rounded">
+                      {(['bracket', 'list'] as const).map((v) => (
+                        <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 text-sm ${view === v ? 'bg-cyan-600' : 'bg-gray-700'}`}>{v === 'bracket' ? 'Bracket' : 'Match list'}</button>
+                      ))}
+                    </div>
+                    <span className="text-sm text-gray-400">{playing.length - noShowCount} here · <span className={noShowCount ? 'text-red-300' : ''}>{noShowCount} no-show</span></span>
+                    <div className="ml-auto flex items-center gap-2">
+                      <button
+                        disabled={busy || noShowCount === 0 || !noResultsYet}
+                        title={!noResultsYet ? 'Only possible before any match is live or finished (undo results first)' : noShowCount === 0 ? 'Mark the no-shows first' : 'Re-draw so no-shows play no-shows'}
+                        className={`${btn} bg-yellow-700`}
+                        onClick={() => {
+                          if (!confirm(`Reshuffle the bracket?\n\n${playing.length - noShowCount} players who are here will play each other, and ${noShowCount} no-shows will play each other. With an odd number, one match mixes the two and you qualify it by hand.`)) return
+                          run(async () => {
+                            const r = await api.reshuffle(id)
+                            setNotice(`Bracket reshuffled: ${r.present} here, ${r.no_shows} no-show. Matches with a no-show have yellow Qualify buttons.`)
+                          })
+                        }}
+                      >Reshuffle for no-shows</button>
+                    </div>
+                  </div>
+                  {notice && <div className="rounded border border-yellow-600 bg-yellow-900/20 p-3 text-sm text-yellow-200">{notice}</div>}
+                  {matchesWithNoShow > 0 && <div className="text-sm text-yellow-300">{matchesWithNoShow} open match{matchesWithNoShow === 1 ? '' : 'es'} involve a no-show: qualify them by hand with the yellow buttons.</div>}
+                  {view === 'bracket' ? (
+                    <BracketView matches={d.matches} actions={actions} side={sideInfo} />
+                  ) : (
+                    <div className="space-y-8">
+                      {Array.from(new Set(d.matches.map((m) => `${m.bracket}|${m.round}`))).map((key) => {
+                        const group = d.matches.filter((m) => `${m.bracket}|${m.round}` === key).sort((a, b) => a.position - b.position)
+                        return (
+                          <div key={key}>
+                            <h3 className="mb-3 font-semibold text-cyan-400">{group[0].bracket === 'third' ? 'Third place' : group[0].round_name}</h3>
+                            <div className="flex flex-wrap gap-4">
+                              {group.map((m) => (
+                                <div key={m.id}>
+                                  <div className="mb-1 text-sm text-gray-300">{m.entrant1_name ?? 'TBD'} <span className="text-gray-500">vs</span> {m.status === 'bye' ? 'BYE' : m.entrant2_name ?? 'TBD'}</div>
+                                  <MatchCard m={m} actions={actions} side={sideInfo} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               )
             ) : playing.length >= 2 ? generatePanel : (
               <div className="rounded-lg bg-gray-900 p-5">
