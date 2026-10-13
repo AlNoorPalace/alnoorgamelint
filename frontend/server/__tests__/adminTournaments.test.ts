@@ -337,3 +337,48 @@ describe('detail', () => {
     await expect(getTournamentDetail('x', fakeDb({ tables: { tournament_overview: { data: null } } }).db)).rejects.toMatchObject({ status: 404 })
   })
 })
+
+import { reshuffleBracket } from '../services/admin/tournaments'
+
+describe('no-show reshuffle and contacts', () => {
+  const started = { ...T, status: 'active', started_at: '2026-10-31', registered_count: 4 }
+  const entrants = [
+    { id: id(1), no_show: false }, { id: id(2), no_show: true }, { id: id(3), no_show: false }, { id: id(4), no_show: true },
+  ]
+  const world = (over: Record<string, unknown> = {}, rpc: object = { data: 4 }) =>
+    fakeDb({ tables: { tournament_overview: { data: { ...started, ...over } }, tournament_entrants: { data: entrants }, tournament_matches: { data: [] } }, rpcs: { save_bracket: rpc } })
+
+  it('draws no-shows against no-shows and saves the new bracket', async () => {
+    const w = world()
+    const out = await reshuffleBracket('t1', w.db, () => 0.4)
+    expect(out).toEqual({ reshuffled: true, no_shows: 2, present: 2 })
+    const saved = rpcArgs(w.log, 'save_bracket') as { p_matches: { round: number; entrant1_id: string | null; entrant2_id: string | null }[]; p_seeds: { id: string }[] }
+    const round1 = saved.p_matches.filter((m) => m.round === 1)
+    const pair = (m: { entrant1_id: string | null; entrant2_id: string | null }) => [m.entrant1_id, m.entrant2_id].sort()
+    expect(round1.map(pair).sort()).toEqual([[id(1), id(3)], [id(2), id(4)]].sort())
+    expect(saved.p_seeds).toHaveLength(4)
+  })
+  it('needs a generated knockout bracket', async () => {
+    await expect(reshuffleBracket('t1', world({ status: 'open', started_at: null }).db)).rejects.toMatchObject({ message: 'Generate the bracket first' })
+    await expect(reshuffleBracket('t1', world({ tournament_type: 'league' }).db)).rejects.toMatchObject({ status: 400 })
+  })
+  it('is refused once a real result exists', async () => {
+    await expect(reshuffleBracket('t1', world({}, { error: { message: 'ALREADY_STARTED' } }).db)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('already been played') })
+  })
+  it('marks and clears a no-show through the normal entrant update', async () => {
+    expect(updateEntrantSchema.parse({ no_show: true })).toEqual({ no_show: true })
+    expect(updateEntrantSchema.parse({ no_show: false })).toEqual({ no_show: false })
+  })
+  it('adds email and phone to the entrants only for staff screens', async () => {
+    const f = () => fakeDb({
+      tables: { tournament_overview: { data: T }, tournament_entrants: { data: [{ id: id(1), display_name: 'A', registered_at: '1' }] }, tournament_matches: { data: [] } },
+      rpcs: { tournament_contacts: { data: [{ entrant_id: id(1), email: 'a@x.com', phone: '999' }] } },
+    })
+    const withC = await getTournamentDetail('t1', f().db, { contacts: true })
+    expect(withC.entrants[0]).toMatchObject({ email: 'a@x.com', phone: '999' })
+    const plain = f()
+    const without = await getTournamentDetail('t1', plain.db)
+    expect(without.entrants[0]).not.toHaveProperty('email')
+    expect(rpcArgs(plain.log, 'tournament_contacts')).toBeUndefined()
+  })
+})

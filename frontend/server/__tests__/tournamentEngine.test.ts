@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  computeStandings, generateRoundRobin, generateSingleElimination, nextPowerOfTwo, roundName, seedOrder, shuffle, totalRounds,
+  computeStandings, generateRoundRobin, generateSingleElimination, nextPowerOfTwo, noShowOrder, roundName, seedOrder, shuffle, totalRounds,
   type GeneratedMatch, type StandingMatch,
 } from '../tournaments/engine'
 
@@ -221,5 +221,64 @@ describe('computeStandings', () => {
     // rock-paper-scissors: everyone has 3 points and equal diff -> falls through to seed
     const table = computeStandings(ids(3), [m('e1', 'e2', 1, 0), m('e2', 'e3', 1, 0), m('e3', 'e1', 1, 0)])
     expect(table.map((r) => r.entrant_id)).toEqual(['e1', 'e2', 'e3'])
+  })
+})
+
+describe('noShowOrder', () => {
+  const rngSeq = (seed: number) => () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296)
+  const mk = (n: number, absentCount: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, absent: i < absentCount }))
+  const pairsOf = (ids: string[]) => generateSingleElimination(ids, { newId: (() => { let i = 0; return () => `m${i++}` })() }).filter((m) => m.round === 1)
+
+  it('puts every entrant in exactly one seat', () => {
+    for (let n = 2; n <= 70; n++) {
+      for (const absent of [0, 1, Math.floor(n / 3), Math.floor(n / 2), n - 1, n]) {
+        const ids = noShowOrder(mk(n, absent), rngSeq(n * 7 + absent))
+        expect(ids).toHaveLength(n)
+        expect(new Set(ids).size).toBe(n)
+      }
+    }
+  })
+  it('pairs no-shows with no-shows and present with present, with at most one mixed match', () => {
+    for (let n = 2; n <= 70; n++) {
+      for (const absent of [0, 1, Math.floor(n / 3), Math.floor(n / 2), n - 1]) {
+        const entrants = mk(n, absent)
+        const isAbsent = new Map(entrants.map((e) => [e.id, e.absent]))
+        const ids = noShowOrder(entrants, rngSeq(n * 13 + absent))
+        const real = pairsOf(ids).filter((m) => m.entrant1_id && m.entrant2_id)
+        const mixed = real.filter((m) => isAbsent.get(m.entrant1_id!) !== isAbsent.get(m.entrant2_id!))
+        expect(mixed.length).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+  it('64 players, 10 absent: five no-show matches, 27 normal matches, no mixed match', () => {
+    const entrants = mk(64, 10)
+    const isAbsent = new Map(entrants.map((e) => [e.id, e.absent]))
+    const real = pairsOf(noShowOrder(entrants, rngSeq(5)))
+    expect(real).toHaveLength(32)
+    expect(real.filter((m) => isAbsent.get(m.entrant1_id!) && isAbsent.get(m.entrant2_id!))).toHaveLength(5)
+    expect(real.filter((m) => !isAbsent.get(m.entrant1_id!) && !isAbsent.get(m.entrant2_id!))).toHaveLength(27)
+  })
+  it('an odd number of no-shows gives exactly one mixed match', () => {
+    const entrants = mk(64, 11)
+    const isAbsent = new Map(entrants.map((e) => [e.id, e.absent]))
+    const real = pairsOf(noShowOrder(entrants, rngSeq(9)))
+    expect(real.filter((m) => isAbsent.get(m.entrant1_id!) !== isAbsent.get(m.entrant2_id!))).toHaveLength(1)
+  })
+  it('byes go to players who are here', () => {
+    const entrants = mk(6, 2) // size 8: two byes
+    const isAbsent = new Map(entrants.map((e) => [e.id, e.absent]))
+    const byes = pairsOf(noShowOrder(entrants, rngSeq(3))).filter((m) => m.status === 'bye')
+    expect(byes).toHaveLength(2)
+    byes.forEach((m) => expect(isAbsent.get(m.winner_id!)).toBe(false))
+  })
+  it('keeps the no-show matches next to each other so their winners meet', () => {
+    const entrants = mk(64, 8)
+    const isAbsent = new Map(entrants.map((e) => [e.id, e.absent]))
+    const real = pairsOf(noShowOrder(entrants, rngSeq(2)))
+    const idx = real.map((m, i) => (isAbsent.get(m.entrant1_id!) ? i : -1)).filter((i) => i >= 0)
+    expect(idx).toEqual([28, 29, 30, 31])
+  })
+  it('needs at least two entrants', () => {
+    expect(() => noShowOrder([{ id: 'a', absent: false }])).toThrow()
   })
 })

@@ -5,7 +5,7 @@ import { ApiError, badRequest, notFound } from '../../http'
 import { getSupabase } from '../../supabase'
 import { fromIstString } from '../../time'
 import {
-  computeStandings, generateRoundRobin, generateSingleElimination, roundName, shuffle, totalRounds, type GeneratedMatch,
+  computeStandings, generateRoundRobin, generateSingleElimination, noShowOrder, roundName, shuffle, totalRounds, type GeneratedMatch,
 } from '../../tournaments/engine'
 import { mapRpcError } from '../bookings'
 
@@ -201,6 +201,7 @@ export const updateEntrantSchema = z
     payment_status: z.enum(['NOT_REQUIRED', 'PENDING', 'PAID']).optional(),
     display_name: z.string().trim().min(1).max(60).optional(),
     seed: z.number().int().min(1).max(1024).nullable().optional(),
+    no_show: z.boolean().optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), 'Nothing to update')
 
@@ -358,6 +359,23 @@ export async function previewBracket(tournamentId: string, order: string[] | und
   }
 }
 
+/**
+ * After no-shows are marked: draws the bracket again so players who are here meet each other and no-shows meet
+ * no-shows (see noShowOrder). Only allowed while no real result is entered; the database refuses otherwise.
+ */
+export async function reshuffleBracket(tournamentId: string, db: SupabaseClient = getSupabase(), rng: () => number = Math.random) {
+  const t = await loadTournament(db, tournamentId)
+  if (!hasStarted(t)) throw badRequest('Generate the bracket first')
+  if (t.tournament_type !== 'knockout') throw badRequest('Only a knockout bracket can be reshuffled')
+  const { data, error } = await db.from('tournament_entrants').select('id, no_show').eq('tournament_id', tournamentId).in('status', PLAYING)
+  if (error) throw fail('Failed to load the entrants', error)
+  const entrants = (data ?? []) as Row[]
+  if (entrants.length < 2) throw badRequest('At least 2 registered entrants are needed to make a bracket')
+  const order = noShowOrder(entrants.map((e) => ({ id: e.id as string, absent: e.no_show === true })), rng)
+  await startBracket(tournamentId, order, db)
+  return { reshuffled: true, no_shows: entrants.filter((e) => e.no_show === true).length, present: entrants.filter((e) => e.no_show !== true).length }
+}
+
 export async function startBracket(tournamentId: string, order: string[] | undefined, db: SupabaseClient = getSupabase()) {
   const { ordered, matches } = await planBracket(db, tournamentId, order)
   const { error } = await db.rpc('save_bracket', {
@@ -500,15 +518,23 @@ export async function updateMatch(matchId: string, input: z.infer<typeof matchUp
 // ---- detail -------------------------------------------------------------------------------------
 
 /** Everything the manage screen needs in one call: settings, live counts, entrants (with team members), matches and standings. */
-export async function getTournamentDetail(tournamentId: string, db: SupabaseClient = getSupabase()) {
+export async function getTournamentDetail(tournamentId: string, db: SupabaseClient = getSupabase(), opts: { contacts?: boolean } = {}) {
   const t = await loadTournament(db, tournamentId)
   const [entrantsRes, matchesRes] = await Promise.all([
     db.from('tournament_entrants').select('*').eq('tournament_id', tournamentId),
     db.from('tournament_matches').select('*').eq('tournament_id', tournamentId).order('round').order('position'),
   ])
   if (entrantsRes.error || matchesRes.error) throw fail('Failed to load the tournament', entrantsRes.error ?? matchesRes.error)
-  const entrants = ((entrantsRes.data ?? []) as Row[]).sort(byRegistration)
+  let entrants = ((entrantsRes.data ?? []) as Row[]).sort(byRegistration)
   const matches = (matchesRes.data ?? []) as Row[]
+
+  // staff screens only: email and phone of each entrant (a team's contact is its captain)
+  if (opts.contacts) {
+    const { data: contacts, error: contactError } = await db.rpc('tournament_contacts', { p_tournament_id: tournamentId })
+    if (contactError) console.error('Failed to load entrant contacts:', contactError) // the screens still work without them
+    const byEntrant = new Map(((contacts ?? []) as Row[]).map((c) => [c.entrant_id as string, c]))
+    entrants = entrants.map((e) => ({ ...e, email: byEntrant.get(e.id)?.email ?? null, phone: byEntrant.get(e.id)?.phone ?? null }))
+  }
 
   // team members, for team entrants
   const teamIds = entrants.map((e) => e.team_id).filter(Boolean) as string[]
