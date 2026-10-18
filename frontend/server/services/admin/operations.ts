@@ -37,6 +37,19 @@ export const walkinSchema = z
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
 
+/**
+ * Staff-only screens show what went wrong instead of a bare "Failed": a function missing because a SQL file has not been
+ * run yet, or the database's own message. (Players never see this; these endpoints need a staff or admin token.)
+ */
+function staffDetail(mapped: ApiError, error: { code?: string; message?: string } | null | undefined, fn: string, file: string): ApiError {
+  if (mapped.status !== 500) return mapped
+  const message = error?.message ?? ''
+  if (error?.code === 'PGRST202' || /could not find the function/i.test(message)) {
+    return new ApiError(503, `The database is missing ${fn}. Run sql/setup/${file} in Supabase, then try again.`)
+  }
+  return message ? new ApiError(500, `${mapped.message}. The database said: ${message}`) : mapped
+}
+
 const WALKIN_ERRORS: Record<string, [number, string]> = {
   STATION_BUSY: [400, 'Someone is already playing on that station'],
   SLOT_TAKEN: [400, 'A reservation on that station starts before this session would end. Choose a shorter time or another station'],
@@ -49,7 +62,7 @@ export const memberSearchQuery = z.object({ q: z.string().trim().max(60).default
 export async function searchMembers(q: string, db: SupabaseClient = getSupabase()) {
   if (q.trim().length < 2) return []
   const { data, error } = await db.rpc('search_members', { p_query: q.trim(), p_limit: 8 })
-  if (error) throw new ApiError(500, 'Failed to search members')
+  if (error) throw staffDetail(new ApiError(500, 'Failed to search members'), error, 'search_members', '11_member_search.sql')
   return (data ?? []) as { user_id: string; username: string; full_name: string; phone: string | null; email: string | null }[]
 }
 
@@ -83,7 +96,7 @@ export async function walkIn(input: z.infer<typeof walkinSchema>, db: SupabaseCl
     p_payment_method: input.payment_method ?? null,
     p_notes: input.notes ?? null,
   })
-  if (error || !data) throw mapRpcError(error, 'Failed to check in the player', WALKIN_ERRORS)
+  if (error || !data) throw staffDetail(mapRpcError(error, 'Failed to check in the player', WALKIN_ERRORS), error, 'walkin_checkin', '10_walkin_checkin.sql')
   if (!input.start_timer) return data
   // the booking exists either way; a failed timer start is reported by the next click on "Start timer"
   try {
