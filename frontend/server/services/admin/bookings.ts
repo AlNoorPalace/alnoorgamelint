@@ -85,7 +85,8 @@ export async function stationsWithReservations(date: string, db: SupabaseClient 
     db.from('stations').select('*').eq('active', true).order('name'),
     open(db.from('bookings').select(`*, ${customer}, stations(*)`).gte('start_at', `${date} 00:00:00`).lt('start_at', `${addDays(date, 1)} 00:00:00`).is('start_time', null)),
     // no date filter: check-in rewrites start_at to "now"
-    open(db.from('bookings').select(`*, ${customer}, stations(*)`).not('start_time', 'is', null).eq('checked_in', true)),
+    // (any checked-in booking, even an odd one without a start time, so a busy station is never shown as free)
+    open(db.from('bookings').select(`*, ${customer}, stations(*)`).eq('checked_in', true)),
     // every unassigned reservation, regardless of date, for the sidebar
     open(db.from('bookings').select(`*, ${customer}`).is('station_id', null).is('start_time', null)),
   ])

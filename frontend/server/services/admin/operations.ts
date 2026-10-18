@@ -50,6 +50,24 @@ function staffDetail(mapped: ApiError, error: { code?: string; message?: string 
   return message ? new ApiError(500, `${mapped.message}. The database said: ${message}`) : mapped
 }
 
+/** Says who is on the station, so staff can find and end a session that was left running. */
+async function describeBusy(db: SupabaseClient, stationId: string, fallback: ApiError): Promise<ApiError> {
+  const { data } = await db
+    .from('bookings')
+    .select('id, status, start_at, guest_name, user_profiles!bookings_user_fk(username, full_name)')
+    .eq('station_id', stationId)
+    .eq('checked_in', true)
+    .not('status', 'in', '(CANCELLED,ENDED)')
+    .order('checked_in_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!data) return fallback
+  const row = data as unknown as { id: string; status: string; start_at: string | null; guest_name: string | null; user_profiles: { username?: string; full_name?: string } | { username?: string; full_name?: string }[] | null }
+  const profile = Array.isArray(row.user_profiles) ? row.user_profiles[0] : row.user_profiles
+  const who = profile?.full_name || profile?.username || row.guest_name || 'a player'
+  return new ApiError(400, `${fallback.message}: ${who} (started ${row.start_at ?? 'at an unknown time'}, ${row.status}, booking ${row.id}). If that session is over, stop its timer or end it in the booking list first.`)
+}
+
 const WALKIN_ERRORS: Record<string, [number, string]> = {
   STATION_BUSY: [400, 'Someone is already playing on that station'],
   SLOT_TAKEN: [400, 'A reservation on that station starts before this session would end. Choose a shorter time or another station'],
@@ -96,7 +114,11 @@ export async function walkIn(input: z.infer<typeof walkinSchema>, db: SupabaseCl
     p_payment_method: input.payment_method ?? null,
     p_notes: input.notes ?? null,
   })
-  if (error || !data) throw staffDetail(mapRpcError(error, 'Failed to check in the player', WALKIN_ERRORS), error, 'walkin_checkin', '10_walkin_checkin.sql')
+  if (error || !data) {
+    const mapped = staffDetail(mapRpcError(error, 'Failed to check in the player', WALKIN_ERRORS), error, 'walkin_checkin', '10_walkin_checkin.sql')
+    if (String(error?.message).includes('STATION_BUSY')) throw await describeBusy(db, input.station_id, mapped)
+    throw mapped
+  }
   if (!input.start_timer) return data
   // the booking exists either way; a failed timer start is reported by the next click on "Start timer"
   try {

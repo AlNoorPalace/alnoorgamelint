@@ -98,6 +98,23 @@ describe('walk-in failures explain themselves to staff', () => {
     })
   })
   it('keeps the plain messages for known refusals', async () => {
-    await expect(run({ message: 'STATION_BUSY' })).rejects.toMatchObject({ status: 400, message: 'Someone is already playing on that station' })
+    await expect(run({ message: 'STATION_BUSY' })).rejects.toMatchObject({ status: 400, message: expect.stringContaining('Someone is already playing on that station') })
+  })
+})
+
+describe('a busy station says who is on it', () => {
+  it('names the session so staff can end it', async () => {
+    const db = fakeDb({
+      tables: { bookings: { data: { id: 'b-old', status: 'ONGOING', start_at: '2026-10-17 21:00:00', guest_name: 'Rahul', user_profiles: null } } },
+      rpcs: { walkin_checkin: { error: { message: 'STATION_BUSY' } } },
+    }).db
+    await expect(walkIn(parse({ guest_name: 'A' }), db, NOW)).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/Rahul.*2026-10-17 21:00:00.*ONGOING.*b-old/),
+    })
+  })
+  it('falls back to the plain message when no session can be found', async () => {
+    const db = fakeDb({ tables: { bookings: { data: null } }, rpcs: { walkin_checkin: { error: { message: 'STATION_BUSY' } } } }).db
+    await expect(walkIn(parse({ guest_name: 'A' }), db, NOW)).rejects.toMatchObject({ message: 'Someone is already playing on that station' })
   })
 })
