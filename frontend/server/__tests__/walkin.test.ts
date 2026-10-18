@@ -84,3 +84,20 @@ describe('searchMembers', () => {
     await expect(searchMembers('rahul', fakeDb({ rpcs: { search_members: { error: { message: 'x' } } } }).db)).rejects.toMatchObject({ status: 500 })
   })
 })
+
+describe('walk-in failures explain themselves to staff', () => {
+  const run = (error: object) => walkIn(parse({ guest_name: 'A' }), world({ rpc: { error } }).db, NOW)
+  it('says which SQL file to run when the function is missing', async () => {
+    await expect(run({ code: 'PGRST202', message: 'Could not find the function public.walkin_checkin(...) in the schema cache' })).rejects.toMatchObject({
+      status: 503, message: expect.stringContaining('10_walkin_checkin.sql'),
+    })
+  })
+  it('passes on the database message for anything unexpected', async () => {
+    await expect(run({ code: '23514', message: 'new row violates check constraint "bookings_x"' })).rejects.toMatchObject({
+      status: 500, message: expect.stringContaining('violates check constraint "bookings_x"'),
+    })
+  })
+  it('keeps the plain messages for known refusals', async () => {
+    await expect(run({ message: 'STATION_BUSY' })).rejects.toMatchObject({ status: 400, message: 'Someone is already playing on that station' })
+  })
+})
