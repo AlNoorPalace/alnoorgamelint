@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { ApiError, parseJson, route } from '../http'
+import { ApiError, cached, parseJson, route } from '../http'
 
 describe('route()', () => {
   it('serialises plain return values', async () => {
@@ -20,5 +20,14 @@ describe('route()', () => {
     const boom = await route(async () => { throw new Error('db password leaked') })(new Request('http://x'), undefined)
     expect(boom.status).toBe(500)
     expect(await boom.json()).toEqual({ detail: 'Internal server error' })
+  })
+
+  it('marks live answers as not cacheable, and leaves a deliberate cache header alone', async () => {
+    const live = await route(async () => ({ ok: true }))(new Request('http://x'), undefined)
+    expect(live.headers.get('Cache-Control')).toBe('no-store')
+    const err = await route(async () => { throw new ApiError(400, 'no') })(new Request('http://x'), undefined)
+    expect(err.headers.get('Cache-Control')).toBe('no-store')
+    const kept = await route(async () => cached({ ok: true }, 5))(new Request('http://x'), undefined)
+    expect(kept.headers.get('Cache-Control')).toContain('s-maxage=5')
   })
 })

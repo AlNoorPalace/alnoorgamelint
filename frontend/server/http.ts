@@ -29,10 +29,13 @@ export function route<C = unknown>(handler: Handler<C>) {
   return async (req: Request, ctx: C): Promise<Response> => {
     try {
       const out = await handler(req, ctx)
-      return out instanceof Response ? out : NextResponse.json(out ?? null)
+      const res = out instanceof Response ? out : NextResponse.json(out ?? null)
+      // API answers are live data: browsers and the CDN must not reuse them (cached() sets its own header)
+      if (!res.headers.has('Cache-Control')) res.headers.set('Cache-Control', 'no-store')
+      return res
     } catch (err) {
       if (err instanceof ApiError) {
-        return NextResponse.json({ detail: err.message }, { status: err.status })
+        return NextResponse.json({ detail: err.message }, { status: err.status, headers: { 'Cache-Control': 'no-store' } })
       }
       if (err instanceof ZodError) {
         return NextResponse.json({ detail: formatZod(err) }, { status: 400 })

@@ -24,7 +24,8 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   const token = await accessToken()
   if (token) headers.set('Authorization', `Bearer ${token}`) // the live session wins over any stale header
   if (typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-  return fetch(`${API_BASE}${path}`, { ...init, headers })
+  // live data: never answer from the browser's HTTP cache
+  return fetch(`${API_BASE}${path}`, { cache: 'no-store', ...init, headers })
 }
 
 /** Error message from an API error body (`{ detail }`), with a fallback. */
