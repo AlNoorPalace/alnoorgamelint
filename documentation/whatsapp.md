@@ -65,3 +65,14 @@ Variables must be one tidy line: the app removes commas, line breaks and repeate
 - The reference is `NGC` plus the first 6 characters of the booking id (also used on the receipt message).
 - One message per booking (`booking:<id>:created`); a failure never fails the booking. Walk-ins checked in by staff do not
   get one (the player is standing at the counter).
+
+## Receipt on WhatsApp
+- **Send receipt on WhatsApp** is in the booking menu (Admin > Bookings, for checked-in or ended sessions) and on Admin >
+  Receipts. A small window asks for a number only if staff want to override the one on file.
+- The server builds the receipt PDF, saves it in the **private** `receipts` storage bucket (run
+  `sql/setup/14_receipts_bucket.sql`), and sends the customer a 7-day link to it as the document of the `receipt_ready`
+  template (`Fileurl`, `PDFName`).
+- The number is the member's profile number, a walk-in guest's number, or one typed by staff; staff see only the last 4 digits
+  of where it went. Pressing the button again within 10 minutes sends nothing new (a later press sends a fresh receipt, useful
+  after a payment changes).
+- Old receipt files stay in the bucket (the links expire after 7 days); they can be deleted from the Supabase storage page.
