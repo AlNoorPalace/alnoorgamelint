@@ -57,3 +57,11 @@ Variables must be one tidy line: the app removes commas, line breaks and repeate
   again within 5 minutes sends nothing new.
 - Endpoints: `GET /api/v1/admin/tournaments/{id}/notify/preview`, `POST .../notify`, `POST .../notify/continue`,
   `POST /api/v1/admin/tournament-matches/{matchId}/call`.
+
+## Booking messages
+- **`booking_confirmed`**: sent to the customer right after a booking with a time is saved (station, date, start time, hours,
+  amount, reference).
+- **`reservation_received`**: sent instead when the booking has no time yet (a reservation staff will confirm).
+- The reference is `NGC` plus the first 6 characters of the booking id (also used on the receipt message).
+- One message per booking (`booking:<id>:created`); a failure never fails the booking. Walk-ins checked in by staff do not
+  get one (the player is standing at the counter).
