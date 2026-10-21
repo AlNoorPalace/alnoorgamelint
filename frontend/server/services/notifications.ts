@@ -30,7 +30,7 @@ export interface NotifyInput {
   sentBy?: string | null
 }
 
-export interface NotifyResult { status: 'sent' | 'failed' | 'unconfirmed' | 'skipped' | 'duplicate'; id?: string; detail?: string }
+export interface NotifyResult { status: 'sent' | 'failed' | 'unconfirmed' | 'skipped' | 'duplicate' | 'queued'; id?: string; detail?: string }
 
 const MAX_ATTEMPTS = 3
 const SETUP_HINT = 'Run sql/setup/13_whatsapp.sql in Supabase'
@@ -69,54 +69,110 @@ async function deliver(db: SupabaseClient, row: Row, cfg: WhatsappConfig, fetchI
   return { status, id: row.id, detail: status === 'sent' ? undefined : result.detail }
 }
 
+type Prepared = { result: NotifyResult } | { db: SupabaseClient; row: Row; cfg: WhatsappConfig }
+
+/** Checks everything that can stop a message and writes its log row as "pending". Sends nothing. */
+async function prepare(input: NotifyInput, deps: Deps): Promise<Prepared> {
+  const db = deps.db ?? getSupabase()
+  const cfg = deps.cfg === undefined ? getWhatsappConfig() : deps.cfg
+  const template = await templateFor(db, input.event)
+  const phone = normalizePhone(input.phone)
+
+  const skip = async (reason: string): Promise<Prepared> => {
+    // skipped messages are logged too, so staff can see why a customer got nothing
+    await db.from('notification_log').insert({
+      event: input.event, recipient_phone: phone, recipient_name: input.name ?? null, user_id: input.userId ?? null,
+      ...input.refs, template_name: template.name, status: 'skipped', last_error: reason, sent_by: input.sentBy ?? null,
+    })
+    return { result: { status: 'skipped', detail: reason } }
+  }
+
+  if (!cfg) return { result: { status: 'skipped', detail: 'WhatsApp is not configured' } } // nothing to show staff yet
+  if (!template.enabled) return skip('This message is switched off in Settings')
+  if (!phone) return skip('No valid mobile number')
+  if (await optedOut(db, input.userId)) return skip('The customer turned WhatsApp messages off')
+
+  const send: TemplateSend = {
+    contact: phone,
+    template: template.name,
+    params: orderedParams(input.event, input.vars),
+    ...(input.name ? { name: input.name } : {}),
+    ...(input.urlParam ? { urlParam: input.urlParam } : {}),
+    ...(input.fileUrl ? { fileUrl: input.fileUrl, pdfName: input.pdfName } : {}),
+  }
+  const { data: row, error } = await db
+    .from('notification_log')
+    .insert({
+      event: input.event, dedupe_key: input.dedupeKey ?? null, recipient_phone: phone, recipient_name: input.name ?? null,
+      user_id: input.userId ?? null, ...input.refs, template_name: template.name, send_args: send, status: 'pending',
+      sent_by: input.sentBy ?? null,
+    })
+    .select()
+    .single()
+  if (error?.code === '23505') return { result: { status: 'duplicate' } }
+  if (error || !row) {
+    console.error('Failed to write the notification log:', error?.message)
+    return { result: { status: 'failed', detail: `The notification log is not available. ${SETUP_HINT}` } }
+  }
+  return { db, cfg, row: { ...row, send_args: send } }
+}
+
+/** Prepares and sends one message right away. */
 export async function notify(input: NotifyInput, deps: Deps = {}): Promise<NotifyResult> {
   try {
-    const db = deps.db ?? getSupabase()
-    const cfg = deps.cfg === undefined ? getWhatsappConfig() : deps.cfg
-    const template = await templateFor(db, input.event)
-    const phone = normalizePhone(input.phone)
-
-    const skip = async (reason: string): Promise<NotifyResult> => {
-      // skipped messages are logged too, so staff can see why a customer got nothing
-      await db.from('notification_log').insert({
-        event: input.event, recipient_phone: phone, recipient_name: input.name ?? null, user_id: input.userId ?? null,
-        ...input.refs, template_name: template.name, status: 'skipped', last_error: reason, sent_by: input.sentBy ?? null,
-      })
-      return { status: 'skipped', detail: reason }
-    }
-
-    if (!cfg) return { status: 'skipped', detail: 'WhatsApp is not configured' } // nothing to show staff yet
-    if (!template.enabled) return skip('This message is switched off in Settings')
-    if (!phone) return skip('No valid mobile number')
-    if (await optedOut(db, input.userId)) return skip('The customer turned WhatsApp messages off')
-
-    const send: TemplateSend = {
-      contact: phone,
-      template: template.name,
-      params: orderedParams(input.event, input.vars),
-      ...(input.name ? { name: input.name } : {}),
-      ...(input.urlParam ? { urlParam: input.urlParam } : {}),
-      ...(input.fileUrl ? { fileUrl: input.fileUrl, pdfName: input.pdfName } : {}),
-    }
-    const { data: row, error } = await db
-      .from('notification_log')
-      .insert({
-        event: input.event, dedupe_key: input.dedupeKey ?? null, recipient_phone: phone, recipient_name: input.name ?? null,
-        user_id: input.userId ?? null, ...input.refs, template_name: template.name, send_args: send, status: 'pending',
-        sent_by: input.sentBy ?? null,
-      })
-      .select()
-      .single()
-    if (error?.code === '23505') return { status: 'duplicate' }
-    if (error || !row) {
-      console.error('Failed to write the notification log:', error?.message)
-      return { status: 'failed', detail: `The notification log is not available. ${SETUP_HINT}` }
-    }
-    return await deliver(db, { ...row, send_args: send }, cfg, deps.fetchImpl)
+    const p = await prepare(input, deps)
+    return 'result' in p ? p.result : await deliver(p.db, p.row, p.cfg, deps.fetchImpl)
   } catch (e) {
     console.error('Notification failed:', e instanceof Error ? e.message : e)
     return { status: 'failed', detail: 'Unexpected error while sending' }
   }
+}
+
+/** Prepares a message and leaves it waiting ("queued") for `deliverQueued`: used for sends to many people at once. */
+export async function enqueue(input: NotifyInput, deps: Deps = {}): Promise<NotifyResult | { status: 'queued'; id: string }> {
+  try {
+    const p = await prepare(input, deps)
+    return 'result' in p ? p.result : { status: 'queued', id: p.row.id as string }
+  } catch (e) {
+    console.error('Notification failed:', e instanceof Error ? e.message : e)
+    return { status: 'failed', detail: 'Unexpected error while preparing' }
+  }
+}
+
+const SEND_CONCURRENCY = 4
+
+/** Sends up to `limit` waiting messages whose dedupe key starts with `prefix`; says how many are still waiting. */
+export async function deliverQueued(
+  prefix: string,
+  deps: Deps = {},
+  limit = 12,
+): Promise<{ sent: number; failed: number; unconfirmed: number; remaining: number }> {
+  const db = deps.db ?? getSupabase()
+  const cfg = deps.cfg === undefined ? getWhatsappConfig() : deps.cfg
+  if (!cfg) throw badRequest('WhatsApp is not configured')
+  const like = `${prefix.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+  const { data, error } = await db
+    .from('notification_log')
+    .select('*')
+    .eq('status', 'pending')
+    .like('dedupe_key', like)
+    .not('send_args', 'is', null)
+    .order('created_at')
+    .limit(limit)
+  if (error) throw new ApiError(500, `Failed to load the waiting messages. ${SETUP_HINT}`)
+  const rows = (data ?? []) as Row[]
+  const out = { sent: 0, failed: 0, unconfirmed: 0, remaining: 0 }
+  for (let i = 0; i < rows.length; i += SEND_CONCURRENCY) {
+    const results = await Promise.all(rows.slice(i, i + SEND_CONCURRENCY).map((r) => deliver(db, r, cfg, deps.fetchImpl)))
+    for (const r of results) {
+      if (r.status === 'sent') out.sent++
+      else if (r.status === 'unconfirmed') out.unconfirmed++
+      else out.failed++
+    }
+  }
+  const { count } = await db.from('notification_log').select('id', { count: 'exact', head: true }).eq('status', 'pending').like('dedupe_key', like)
+  out.remaining = count ?? 0
+  return out
 }
 
 /** Run by the scheduled job: messages that clearly failed are tried again (up to 3 times, within a day). */
@@ -134,13 +190,19 @@ export async function retryFailedNotifications(deps: Deps = {}, limit = 20): Pro
     .not('send_args', 'is', null)
     .order('created_at')
     .limit(limit)
-  if (error || !data?.length) return { retried: 0, sent: 0 }
+  // a staff broadcast whose browser tab was closed halfway: finish the messages still waiting after 3 minutes
+  const stale = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+  const { data: waiting } = await db
+    .from('notification_log').select('*').eq('status', 'pending').eq('event', 'tournament_update')
+    .lt('created_at', stale).not('send_args', 'is', null).order('created_at').limit(limit)
+  const rows = [...((error ? [] : data) ?? []), ...((waiting ?? []) as Row[])] as Row[]
+  if (!rows.length) return { retried: 0, sent: 0 }
   let sent = 0
-  for (const row of data as Row[]) {
+  for (const row of rows) {
     const out = await deliver(db, row, cfg, deps.fetchImpl)
     if (out.status === 'sent') sent++
   }
-  return { retried: data.length, sent }
+  return { retried: rows.length, sent }
 }
 
 // ---- staff screens ------------------------------------------------------------------------------------------------

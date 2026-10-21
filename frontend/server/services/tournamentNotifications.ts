@@ -19,6 +19,35 @@ export function formatStart(iso: string | null | undefined): string {
   return `${Number(ist.slice(8, 10))} ${MONTHS[Number(ist.slice(5, 7)) - 1]} ${ist.slice(0, 4)} ${h12}:${ist.slice(14, 16)} ${hour < 12 ? 'AM' : 'PM'}`
 }
 
+export interface Recipient { entrant: Row; userId: string; name: string; phone: string | null }
+
+/**
+ * The people behind these entrants: one player, or every accepted member of a team (their own name and number).
+ * Walk-ins added by name have no account, so there is nobody to message.
+ */
+export async function recipientsFor(db: SupabaseClient, tournamentId: string, entrantIds: string[]): Promise<{ recipients: Recipient[]; entrants: Row[]; waitlist: Row[] }> {
+  const { data: rows } = await db.from('tournament_entrants').select('id, user_id, team_id, display_name, status, registered_at').eq('tournament_id', tournamentId)
+  const all = (rows ?? []) as Row[]
+  const waitlist = all.filter((e) => e.status === 'waitlist').sort((a, b) => String(a.registered_at).localeCompare(String(b.registered_at)))
+  const chosen = all.filter((e) => entrantIds.includes(e.id))
+
+  const teamIds = chosen.map((e) => e.team_id).filter(Boolean) as string[]
+  const { data: members } = teamIds.length
+    ? await db.from('tournament_team_members').select('team_id, user_id').in('team_id', teamIds).eq('status', 'accepted')
+    : { data: [] as Row[] }
+  const membersOf = (teamId: string) => ((members ?? []) as Row[]).filter((m) => m.team_id === teamId).map((m) => m.user_id as string)
+  const people = chosen.flatMap((e) => (e.user_id ? [{ entrant: e, userId: e.user_id as string }] : e.team_id ? membersOf(e.team_id).map((userId) => ({ entrant: e, userId })) : []))
+  if (!people.length) return { recipients: [], entrants: chosen, waitlist }
+
+  const { data: profiles } = await db.from('user_profiles').select('user_id, username, full_name, phone').in('user_id', Array.from(new Set(people.map((p) => p.userId))))
+  const profileOf = new Map(((profiles ?? []) as Row[]).map((p) => [p.user_id as string, p]))
+  const recipients = people.map(({ entrant, userId }) => {
+    const profile = profileOf.get(userId)
+    return { entrant, userId, name: (profile?.full_name || profile?.username || entrant.display_name || 'Player') as string, phone: (profile?.phone ?? null) as string | null }
+  })
+  return { recipients, entrants: chosen, waitlist }
+}
+
 export type EntrantMessage = 'registered' | 'moved_up'
 
 /**
@@ -36,34 +65,13 @@ export async function notifyEntrants(
   if (!entrantIds.length || deps.cfg === null || (deps.cfg === undefined && !isWhatsappConfigured())) return []
   const withDb: Deps = { ...deps, db }
   try {
-    const [{ data: t }, { data: rows }] = await Promise.all([
-      db.from('tournament_overview').select('id, name, starts_at').eq('id', tournamentId).maybeSingle(),
-      db.from('tournament_entrants').select('id, user_id, team_id, display_name, status, registered_at').eq('tournament_id', tournamentId),
-    ])
-    if (!t || !rows) return []
-    const all = rows as Row[]
-    const waitlist = all.filter((e) => e.status === 'waitlist').sort((a, b) => String(a.registered_at).localeCompare(String(b.registered_at)))
-    const chosen = all.filter((e) => entrantIds.includes(e.id))
-
-    // everyone to tell, per entrant
-    const teamIds = chosen.map((e) => e.team_id).filter(Boolean) as string[]
-    const { data: members } = teamIds.length
-      ? await db.from('tournament_team_members').select('team_id, user_id').in('team_id', teamIds).eq('status', 'accepted')
-      : { data: [] as Row[] }
-    const membersOf = (teamId: string) => ((members ?? []) as Row[]).filter((m) => m.team_id === teamId).map((m) => m.user_id as string)
-    const people = chosen.flatMap((e) => (e.user_id ? [{ entrant: e, userId: e.user_id as string }] : e.team_id ? membersOf(e.team_id).map((userId) => ({ entrant: e, userId })) : []))
-    if (!people.length) return [] // walk-ins added by name have no number
-
-    const userIds = Array.from(new Set(people.map((p) => p.userId)))
-    const { data: profiles } = await db.from('user_profiles').select('user_id, username, full_name, phone').in('user_id', userIds)
-    const profileOf = new Map(((profiles ?? []) as Row[]).map((p) => [p.user_id as string, p]))
-
-    const jobs = people.map(({ entrant, userId }) => {
-      const profile = profileOf.get(userId)
-      const name = (profile?.full_name || profile?.username || entrant.display_name || 'Player') as string
+    const { data: t } = await db.from('tournament_overview').select('id, name, starts_at').eq('id', tournamentId).maybeSingle()
+    if (!t) return []
+    const { recipients, waitlist } = await recipientsFor(db, tournamentId, entrantIds)
+    const jobs = recipients.map(({ entrant, userId, name, phone }) => {
       const position = waitlist.findIndex((w) => w.id === entrant.id) + 1
       const status = entrant.status === 'waitlist' ? `Waitlist number ${position || waitlist.length + 1}` : 'Registered'
-      const base = { phone: profile?.phone as string | null, name, userId, urlParam: tournamentId, refs: { tournament_id: tournamentId, entrant_id: entrant.id as string } }
+      const base = { phone, name, userId, urlParam: tournamentId, refs: { tournament_id: tournamentId, entrant_id: entrant.id as string } }
       return kind === 'moved_up'
         ? notify({ ...base, event: 'tournament_waitlist_moved_up', vars: { name, tournament: t.name }, dedupeKey: `tournament:${tournamentId}:${entrant.id}:${userId}:moved_up` }, withDb)
         : notify({ ...base, event: 'tournament_registered', vars: { name, tournament: t.name, status, starts: formatStart(t.starts_at) }, dedupeKey: `tournament:${tournamentId}:${entrant.id}:${userId}:registered` }, withDb)

@@ -110,7 +110,8 @@ describe('retry and resend', () => {
   const failedRow = { id: 'n1', status: 'failed', attempts: 1, send_args: { contact: '919876543210', template: 't', params: ['a'] } }
 
   it('retries only clearly failed messages, a few times, and counts the sends', async () => {
-    const db = fakeDb({ tables: { notification_log: (c: Call[]) => (has(c, 'update') ? {} : { data: [failedRow, { ...failedRow, id: 'n2' }] }) } })
+    const failedQuery = (c: Call[]) => c.some((x) => x.method === 'eq' && x.args[1] === 'failed')
+    const db = fakeDb({ tables: { notification_log: (c: Call[]) => (has(c, 'update') ? {} : failedQuery(c) ? { data: [failedRow, { ...failedRow, id: 'n2' }] } : { data: [] }) } })
     const out = await retryFailedNotifications({ db: db.db, cfg, fetchImpl: ok() })
     expect(out).toEqual({ retried: 2, sent: 2 })
     const query = db.log[0].calls
@@ -118,6 +119,13 @@ describe('retry and resend', () => {
     expect(query).toContainEqual({ method: 'lt', args: ['attempts', 3] })
     const updates = db.log.filter((e) => has(e.calls, 'update')).map((e) => arg(e.calls, 'update'))
     expect(updates[0]).toMatchObject({ status: 'sent', attempts: 2 })
+  })
+  it('also finishes a staff broadcast that was left waiting for more than 3 minutes', async () => {
+    const waiting = { id: 'n9', status: 'pending', event: 'tournament_update', attempts: 0, send_args: { contact: '919876543210', template: 't', params: ['a'] } }
+    const db = fakeDb({ tables: { notification_log: (c: Call[]) => (has(c, 'update') ? {} : c.some((x) => x.method === 'eq' && x.args[1] === 'pending') ? { data: [waiting] } : { data: [] }) } })
+    expect(await retryFailedNotifications({ db: db.db, cfg, fetchImpl: ok() })).toEqual({ retried: 1, sent: 1 })
+    const q = db.log.find((e) => e.calls.some((x) => x.method === 'eq' && x.args[1] === 'pending'))!.calls
+    expect(q).toContainEqual({ method: 'eq', args: ['event', 'tournament_update'] })
   })
   it('does nothing without a configuration', async () => {
     expect(await retryFailedNotifications({ db: fakeDb().db, cfg: null })).toEqual({ retried: 0, sent: 0 })

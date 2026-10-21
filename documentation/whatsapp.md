@@ -46,3 +46,14 @@ Variables must be one tidy line: the app removes commas, line breaks and repeate
   gives a waiting player a place; staff promote someone by hand; a reshuffle replaces a no-show from the waitlist (sent only
   after the new bracket is saved).
 - Each message is sent at most once per person per entry (`dedupe_key`), and a failure never stops the sign-up.
+
+## Staff buttons (tournament page)
+- **Send WhatsApp notification** (admin): pick the group (everyone registered, checked in, waitlist, no-shows, or the players
+  still to play in a round), see how many will get it, write one line (200 characters), and send. Uses `tournament_update`.
+  Every person is prepared first, then sent in small batches while the page shows progress; a unique batch id means pressing
+  the button twice cannot send twice, and the scheduled job finishes any messages left waiting by a closed tab after 3 minutes.
+  Up to 300 people per send.
+- **Call players on WhatsApp** (staff): on each ready or live match; messages both players with `match_call`. Pressing it
+  again within 5 minutes sends nothing new.
+- Endpoints: `GET /api/v1/admin/tournaments/{id}/notify/preview`, `POST .../notify`, `POST .../notify/continue`,
+  `POST /api/v1/admin/tournament-matches/{matchId}/call`.
