@@ -15,6 +15,15 @@ export function getWhatsappConfig(): WhatsappConfig | null {
   return { licenseNumber: env.WHATSAPP_LICENSE_NUMBER, apiKey: env.WHATSAPP_API_KEY, baseUrl: env.WHATSAPP_API_BASE.replace(/\/$/, '') }
 }
 
+/** For callers that only want to know whether it is worth preparing a message (never throws, e.g. when env is incomplete). */
+export function isWhatsappConfigured(): boolean {
+  try {
+    return getWhatsappConfig() !== null
+  } catch {
+    return false
+  }
+}
+
 /** "98765 43210", "+91 98765-43210", "09876543210" -> "919876543210". Anything else (landline, wrong length) -> null. */
 export function normalizePhone(raw: string | null | undefined): string | null {
   const digits = String(raw ?? '').replace(/\D/g, '')

@@ -38,3 +38,11 @@ Variables must be one tidy line: the app removes commas, line breaks and repeate
   the rules in `interpretResponse` can be made exact.
 - `failed` messages are retried by the scheduled job (`/api/cron/reminders`), up to 3 attempts within 24 hours. Staff can also
   press "Send again" in the log.
+
+## Tournament messages (what triggers them)
+- **`tournament_registered`**: a player registers (also "Waitlist number N" when full); staff add a member by username; a team
+  becomes complete (every accepted member gets one). Walk-ins added by name have no number and get nothing.
+- **`tournament_waitlist_moved_up`**: a withdrawal, a disqualification, a larger tournament size, or reopening registration
+  gives a waiting player a place; staff promote someone by hand; a reshuffle replaces a no-show from the waitlist (sent only
+  after the new bracket is saved).
+- Each message is sent at most once per person per entry (`dedupe_key`), and a failure never stops the sign-up.
