@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { AdminGuard } from '@/components/ui/admin-guard'
-import { bookings, admin } from '@/lib/supabase'
+import { admin } from '@/lib/supabase'
+import { apiFetch, apiError } from '@/lib/api'
 
 const tabs = ['Day Settlement', 'Day Use', 'Customer']
 
@@ -10,7 +11,10 @@ export default function AdminReports() {
   const [activeTab, setActiveTab] = useState('Day Settlement')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
-  const [reportData, setReportData] = useState<any[]>([])
+  const [reportData, setReportData] = useState<any[]>([]) // finished sessions (Day Use and Customer reports)
+  const [paidRows, setPaidRows] = useState<any[]>([]) // every booking with money received (Day Settlement)
+  const [summary, setSummary] = useState<{ bookings: number; paid_bookings: number; unpaid_bookings: number; booked_value: number; collected: number; outstanding: number; by_method: Record<string, number> } | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [customerSearch, setCustomerSearch] = useState('')
   const [bookingModal, setBookingModal] = useState<{userId: string, name: string} | null>(null)
@@ -19,37 +23,49 @@ export default function AdminReports() {
   const fetchReport = async () => {
     if (!fromDate || !toDate) return
     setLoading(true)
+    setLoadError(null)
     try {
-      const result = await bookings.getAllBookings(1, 100)
-      const filtered = (result.data || []).filter((b: any) => {
-        const date = new Date(b.start_at)
-        return date >= new Date(fromDate) && date <= new Date(toDate + 'T23:59:59') && b.status === 'ENDED'
-      })
-      setReportData(filtered)
-    } catch (e) { console.error(e) }
+      // one server request for the whole range (no 100-booking limit, no browser time zones)
+      const res = await apiFetch(`/api/v1/admin/reports/bookings?from=${fromDate}&to=${toDate}`)
+      if (!res.ok) throw new Error(await apiError(res, 'Could not load the report'))
+      const out = await res.json()
+      const all: any[] = out.data ?? []
+      setSummary(out.summary)
+      setPaidRows(all.filter((b) => Number(b.amount_paid) > 0))
+      setReportData(all.filter((b) => b.status === 'ENDED'))
+    } catch (e) {
+      setLoadError((e as Error).message)
+      setSummary(null)
+      setPaidRows([])
+      setReportData([])
+    }
     setLoading(false)
   }
 
   useEffect(() => { fetchReport() }, [fromDate, toDate])
 
   const getPaymentAmount = (booking: any, method: string) => {
-    return booking.payment_method?.toUpperCase() === method ? (booking.amount_paid || booking.total_amount || 0) : 0
+    const known = ['CASH', 'CARD', 'BANK', 'UPI']
+    const m = String(booking.payment_method ?? '').toUpperCase()
+    const column = known.includes(m) ? m : 'OTHER'
+    return column === method ? Number(booking.amount_paid || 0) : 0 // money received only, never the price of an unpaid booking
   }
 
   const totals = {
-    cash: reportData.reduce((sum, b) => sum + getPaymentAmount(b, 'CASH'), 0),
-    card: reportData.reduce((sum, b) => sum + getPaymentAmount(b, 'CARD'), 0),
-    bank: reportData.reduce((sum, b) => sum + getPaymentAmount(b, 'BANK'), 0),
-    upi: reportData.reduce((sum, b) => sum + getPaymentAmount(b, 'UPI'), 0),
+    cash: summary?.by_method.CASH ?? 0,
+    card: summary?.by_method.CARD ?? 0,
+    bank: summary?.by_method.BANK ?? 0,
+    upi: summary?.by_method.UPI ?? 0,
+    other: summary?.by_method.OTHER ?? 0,
   }
-  const grandTotal = totals.cash + totals.card + totals.bank + totals.upi
+  const grandTotal = summary?.collected ?? 0
 
   const dayUseData = Object.values(
     reportData.reduce((acc: any, b: any) => {
       const date = b.start_at?.split('T')[0] || b.start_at
       if (!acc[date]) acc[date] = { date, bookings: 0, revenue: 0, hours: 0 }
       acc[date].bookings++
-      acc[date].revenue += Number(b.amount_paid || b.total_amount || 0)
+      acc[date].revenue += Number(b.total_amount || 0)
       acc[date].hours += Number(b.duration_hours || 0)
       return acc
     }, {})
@@ -57,16 +73,17 @@ export default function AdminReports() {
 
   const customerData = Object.values(
     reportData.reduce((acc: any, b: any) => {
-      const id = b.user_id
+      const id = b.user_id ?? `guest:${b.user_profiles?.username ?? b.id}`
       const name = b.user_profiles?.username || b.user_profiles?.full_name || 'Unknown'
       const phone = b.user_profiles?.phone || '-'
-      if (!acc[id]) acc[id] = { id, name, phone, cash: 0, card: 0, bank: 0, upi: 0, total: 0, hours: 0 }
-      const amt = Number(b.amount_paid || b.total_amount || 0)
+      if (!acc[id]) acc[id] = { id, name, phone, cash: 0, card: 0, bank: 0, upi: 0, other: 0, total: 0, hours: 0 }
+      const amt = Number(b.amount_paid || 0)
       const method = b.payment_method?.toUpperCase()
       if (method === 'CASH') acc[id].cash += amt
       else if (method === 'CARD') acc[id].card += amt
       else if (method === 'BANK') acc[id].bank += amt
       else if (method === 'UPI') acc[id].upi += amt
+      else if (amt > 0) acc[id].other += amt
       acc[id].total += amt
       acc[id].hours += Number(b.duration_hours || 0)
       return acc
@@ -74,11 +91,11 @@ export default function AdminReports() {
   ).filter((c: any) => !customerSearch || c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.phone.includes(customerSearch)) as any[]
 
   const exportCSV = () => {
-    if (!reportData.length) return
-    const headers = ['Booking ID', 'Station', 'User', 'Cash', 'Card', 'Bank', 'UPI', 'Staff', 'Time']
-    const rows = reportData.map((b: any) => [
+    if (!paidRows.length) return
+    const headers = ['Booking ID', 'Station', 'User', 'Cash', 'Card', 'Bank', 'UPI', 'Other', 'Staff', 'Time']
+    const rows = paidRows.map((b: any) => [
       b.id.slice(0, 8), b.stations?.name || 'N/A', b.user_profiles?.username || 'N/A',
-      getPaymentAmount(b, 'CASH'), getPaymentAmount(b, 'CARD'), getPaymentAmount(b, 'BANK'), getPaymentAmount(b, 'UPI'),
+      getPaymentAmount(b, 'CASH'), getPaymentAmount(b, 'CARD'), getPaymentAmount(b, 'BANK'), getPaymentAmount(b, 'UPI'), getPaymentAmount(b, 'OTHER'),
       '-', new Date(b.updated_at).toLocaleTimeString()
     ])
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
@@ -147,10 +164,18 @@ export default function AdminReports() {
                     <p className="text-gray-400">Select date range to view report</p>
                   ) : loading ? (
                     <p className="text-gray-400">Loading...</p>
-                  ) : reportData.length === 0 ? (
-                    <p className="text-gray-400">No data for selected date range</p>
+                  ) : loadError ? (
+                    <p className="text-red-400">{loadError}</p>
+                  ) : !summary || summary.bookings === 0 ? (
+                    <p className="text-gray-400">No bookings in the selected date range</p>
                   ) : (
                     <div className="overflow-x-auto">
+                      <p className="mb-4 rounded bg-cp-black/40 p-3 text-sm text-gray-300">
+                        {summary.bookings} booking{summary.bookings === 1 ? '' : 's'} in this range: booked <b className="text-white">₹{summary.booked_value}</b>,
+                        received <b className="text-green-400">₹{summary.collected}</b> ({summary.paid_bookings} paid),
+                        still to collect <b className="text-yellow-300">₹{summary.outstanding}</b> ({summary.unpaid_bookings} with nothing received).
+                        The table lists the bookings that have money received, whatever their status.
+                      </p>
                       <table className="w-full text-sm">
                         <thead className="bg-cp-gray/40">
                           <tr>
@@ -161,12 +186,13 @@ export default function AdminReports() {
                             <th className="px-3 py-2 text-right text-cp-yellow">Card</th>
                             <th className="px-3 py-2 text-right text-cp-yellow">Bank</th>
                             <th className="px-3 py-2 text-right text-cp-yellow">UPI</th>
+                            <th className="px-3 py-2 text-right text-cp-yellow">Other</th>
                             <th className="px-3 py-2 text-left text-cp-yellow">Staff</th>
                             <th className="px-3 py-2 text-left text-cp-yellow">Time</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {reportData.map((b: any) => (
+                          {paidRows.map((b: any) => (
                             <tr key={b.id} className="border-t border-cp-cyan/20">
                               <td className="px-3 py-2 text-white text-xs">{b.id}</td>
                               <td className="px-3 py-2 text-white">{b.stations?.name || 'N/A'}</td>
@@ -175,6 +201,7 @@ export default function AdminReports() {
                               <td className="px-3 py-2 text-right text-white">₹{getPaymentAmount(b, 'CARD')}</td>
                               <td className="px-3 py-2 text-right text-white">₹{getPaymentAmount(b, 'BANK')}</td>
                               <td className="px-3 py-2 text-right text-white">₹{getPaymentAmount(b, 'UPI')}</td>
+                              <td className="px-3 py-2 text-right text-white">₹{getPaymentAmount(b, 'OTHER')}</td>
                               <td className="px-3 py-2 text-white">{b.staff?.username || '-'}</td>
                               <td className="px-3 py-2 text-white">{new Date(b.updated_at).toLocaleTimeString()}</td>
                             </tr>
@@ -185,6 +212,7 @@ export default function AdminReports() {
                             <td className="px-3 py-2 text-right text-cp-yellow">₹{totals.card}</td>
                             <td className="px-3 py-2 text-right text-cp-yellow">₹{totals.bank}</td>
                             <td className="px-3 py-2 text-right text-cp-yellow">₹{totals.upi}</td>
+                            <td className="px-3 py-2 text-right text-cp-yellow">₹{totals.other}</td>
                             <td className="px-3 py-2 text-cp-cyan" colSpan={2}>Grand Total: ₹{grandTotal}</td>
                           </tr>
                         </tbody>

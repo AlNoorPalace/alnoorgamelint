@@ -19,7 +19,7 @@ export const dateQuery = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD'),
 })
 
-const withLiveStatus = <T extends Record<string, unknown>>(rows: T[] | null, now = new Date()) => {
+export const withLiveStatus = <T extends Record<string, unknown>>(rows: T[] | null, now = new Date()) => {
   const nowIst = toIstString(now)
   return (rows ?? []).map((b) => ({ ...b, status: effectiveStatus(b as never, nowIst) }))
 }
