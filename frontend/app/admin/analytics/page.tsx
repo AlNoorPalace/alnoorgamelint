@@ -4,8 +4,18 @@ import { useState, useEffect } from 'react'
 import { AdminGuard } from '@/components/ui/admin-guard'
 import { BookingCalendar } from '@/components/ui/booking-calendar'
 import { DateBookingsModal } from '@/components/ui/date-bookings-modal'
-import { bookings } from '@/lib/supabase'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, apiError } from '@/lib/api'
+
+// Calendar days in India (the cafe's own clock), as YYYY-MM-DD
+const istToday = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10)
+const shiftDay = (ymd: string, days: number) => new Date(new Date(`${ymd}T00:00:00Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10)
+
+/** All bookings that start in a range, with what was booked, received and is still owed: from the server, no page limits */
+async function fetchRange(from: string, to: string) {
+  const res = await apiFetch(`/api/v1/admin/reports/bookings?from=${from}&to=${to}`)
+  if (!res.ok) throw new Error(await apiError(res, 'Could not load bookings'))
+  return (await res.json()) as { data: any[]; summary: { bookings: number; booked_value: number; collected: number; outstanding: number; paid_bookings: number } }
+}
 
 
 export default function AdminAnalytics() {
@@ -13,6 +23,9 @@ export default function AdminAnalytics() {
     totalRevenue: 0,
     totalBookings: 0,
     avgBookingValue: 0,
+    collected: 0,
+    outstanding: 0,
+    paidBookings: 0,
     pcBookings: 0,
     ps5Bookings: 0,
     bookingActivityStats: [] as any[],
@@ -65,16 +78,18 @@ export default function AdminAnalytics() {
   const loadAnalytics = async () => {
     setLoading(true)
     try {
-      const { data: allBookings } = await bookings.getAllBookings()
-      
-      if (!allBookings) return
-      
-      // Filter bookings based on date selection
-      const filteredBookings = filterBookingsByDate(allBookings)
-      
-      // Basic calculations
-      const totalRevenue = filteredBookings.reduce((sum, booking) => sum + (booking.total_amount || 0), 0)
-      const totalBookings = filteredBookings.length
+      const today = istToday()
+      const range =
+        dateFilter === 'today' ? { from: today, to: today }
+        : dateFilter === '1day' ? { from: shiftDay(today, -1), to: shiftDay(today, -1) }
+        : dateFilter === '7days' ? { from: shiftDay(today, -6), to: today }
+        : dateFilter === 'custom' && customRange.start && customRange.end ? { from: customRange.start, to: customRange.end }
+        : { from: shiftDay(today, -29), to: today }
+      const { data: filteredBookings, summary } = await fetchRange(range.from, range.to)
+
+      // Basic calculations: "booked value" is the price of the bookings; the money actually received is shown separately
+      const totalRevenue = summary.booked_value
+      const totalBookings = summary.bookings
       const avgBookingValue = totalBookings > 0 ? totalRevenue / totalBookings : 0
       
       // Station type breakdown
@@ -94,6 +109,9 @@ export default function AdminAnalytics() {
         totalRevenue,
         totalBookings,
         avgBookingValue,
+        collected: summary.collected,
+        outstanding: summary.outstanding,
+        paidBookings: summary.paid_bookings,
         pcBookings,
         ps5Bookings,
         bookingActivityStats,
@@ -226,9 +244,10 @@ export default function AdminAnalytics() {
 
   const loadBookingDates = async () => {
     try {
-      const { data: allBookings } = await bookings.getAllBookings()
+      const today = istToday()
+      const { data: allBookings } = await fetchRange(shiftDay(today, -300), shiftDay(today, 65))
       const dates = Array.from(new Set<string>(
-        (allBookings ?? []).map((booking: { start_at: string }) => booking.start_at.split('T')[0])
+        allBookings.map((booking: { start_at: string }) => booking.start_at.slice(0, 10)),
       ))
       setBookingDates(dates)
     } catch (error) {
@@ -364,8 +383,11 @@ export default function AdminAnalytics() {
                 {/* Key Metrics */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="bg-cp-gray/20 border border-cp-cyan/20 rounded-lg p-6">
-                    <h3 className="text-cp-yellow font-bold mb-2">Total Revenue</h3>
+                    <h3 className="text-cp-yellow font-bold mb-2">Booked Value</h3>
                     <div className="text-3xl font-bold text-white">{formatCurrency(analytics.totalRevenue)}</div>
+                    <div className="mt-2 text-xs text-gray-400">
+                      Received <span className="text-green-400">{formatCurrency(analytics.collected)}</span> · To collect <span className="text-yellow-300">{formatCurrency(analytics.outstanding)}</span>
+                    </div>
                   </div>
                   <div className="bg-cp-gray/20 border border-cp-cyan/20 rounded-lg p-6">
                     <h3 className="text-cp-yellow font-bold mb-2">Total Bookings</h3>

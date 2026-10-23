@@ -88,6 +88,7 @@ Generated from the route files. "staff / admin" means either role; "signed-in us
 | GET | `/api/v1/admin/bookings/calendar` | staff / admin |
 | GET | `/api/v1/admin/bookings/cancelled` | staff / admin |
 | PUT | `/api/v1/admin/bookings/{id}` | staff / admin |
+| GET | `/api/v1/admin/reports/bookings?from=&to=` | staff / admin |
 | GET | `/api/v1/admin/members/search?q=` | staff / admin |
 | POST | `/api/v1/admin/bookings/walk-in` | staff / admin |
 | POST | `/api/v1/admin/bookings/{id}/checkin` | staff / admin |
@@ -166,3 +167,11 @@ page use "+ Walk-in check-in" or the button on an available station card.
 results, with email and phone). It calls `search_members` from `sql/setup/11_member_search.sql` (emails live in `auth.users`,
 so the function runs with the owner's rights and is executable by the server only). The walk-in screen uses it as a
 search box with a drop-down.
+
+## Reports and analytics numbers
+`GET /api/v1/admin/reports/bookings?from=YYYY-MM-DD&to=YYYY-MM-DD` (IST days, at most 366) returns every non-cancelled
+booking that starts in the range plus a `summary`: `bookings`, `booked_value` (the price of the bookings), `collected` (money
+actually received: `amount_paid`), `outstanding` (what is still owed), `paid_bookings`, `unpaid_bookings` and `by_method`
+(CASH, CARD, BANK, UPI, OTHER for no/unknown method). Admin Analytics and Reports both read from it, so they always agree.
+Booked value is not revenue until it is paid: the Day Settlement report lists bookings with money received, whatever their
+status, and shows the booked / received / still-to-collect line above the table.
