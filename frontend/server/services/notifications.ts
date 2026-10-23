@@ -209,7 +209,7 @@ export async function retryFailedNotifications(deps: Deps = {}, limit = 20): Pro
 
 export const templateUpdateSchema = z
   .object({
-    template_name: z.string().trim().regex(/^[a-z0-9_]{1,512}$/, 'Use lowercase letters, numbers and underscores').optional(),
+    template_name: z.string().trim().regex(/^[a-z0-9_]{1,255}$/, 'Use lowercase letters, numbers and underscores').optional(),
     enabled: z.boolean().optional(),
   })
   .refine((v) => v.template_name !== undefined || v.enabled !== undefined, 'Nothing to update')

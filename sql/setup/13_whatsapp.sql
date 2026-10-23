@@ -4,7 +4,7 @@
 -- which approved WhatsApp template each event uses, and whether the event sends at all
 CREATE TABLE IF NOT EXISTS whatsapp_templates (
     event          TEXT PRIMARY KEY,
-    template_name  TEXT NOT NULL CHECK (template_name ~ '^[a-z0-9_]{1,512}$'),
+    template_name  TEXT NOT NULL CHECK (template_name ~ '^[a-z0-9_]{1,255}$'),
     enabled        BOOLEAN NOT NULL DEFAULT true,
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
