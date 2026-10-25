@@ -101,7 +101,7 @@ export async function buildReceiptPdf(b: ReceiptBooking): Promise<Uint8Array> {
   const station = b.stations ? `${b.stations.name ?? 'N/A'} (${b.stations.type ?? ''})` : 'Not assigned'
 
   let y = height - 60
-  centered('NEO GAMING CAFE', y, bold, 24, YELLOW)
+  centered('NEO RIFT', y, bold, 24, YELLOW)
   y -= 25
   centered('- RECEIPT -', y, regular, 12, CYAN)
   y -= 30

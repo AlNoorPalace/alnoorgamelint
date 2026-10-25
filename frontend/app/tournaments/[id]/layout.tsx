@@ -8,7 +8,7 @@ const site = () =>
   `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL ?? 'localhost:3000'}`
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const fallback: Metadata = { title: 'Tournament | Neo Gaming Cafe' }
+  const fallback: Metadata = { title: 'Tournament | Neo Rift' }
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) return fallback
   try {
     const { data } = await getSupabase()
@@ -23,9 +23,9 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
     const image = data.banner_image || data.poster_image
     return {
       metadataBase: new URL(site()),
-      title: `${data.name} | Neo Gaming Cafe`,
+      title: `${data.name} | Neo Rift`,
       description,
-      openGraph: { title: data.name, description, type: 'website', siteName: 'Neo Gaming Cafe', ...(image ? { images: [{ url: image }] } : {}) },
+      openGraph: { title: data.name, description, type: 'website', siteName: 'Neo Rift', ...(image ? { images: [{ url: image }] } : {}) },
       twitter: { card: image ? 'summary_large_image' : 'summary', title: data.name, description, ...(image ? { images: [image] } : {}) },
     }
   } catch {

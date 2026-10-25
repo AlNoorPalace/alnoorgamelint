@@ -88,7 +88,7 @@ export default function TournamentPage() {
               {t.game} · {t.platform} · {t.tournament_type === 'knockout' ? 'Single elimination' : 'Round robin'} · best of {t.best_of}
               {team ? ` · teams of ${t.team_size}` : ''}
             </p>
-            <ShareButton title={t.name} text={`Join ${t.name} (${t.game}) at Neo Gaming Cafe!`} />
+            <ShareButton title={t.name} text={`Join ${t.name} (${t.game}) at Neo Rift!`} />
           </div>
         </div>
 
@@ -109,7 +109,7 @@ export default function TournamentPage() {
             canRegister ? (
               <div>
                 <h2 className="mb-1 text-xl font-bold text-cp-yellow">{needLogin ? 'Please log in again to register' : 'Log in or sign up to register'}</h2>
-                <p className="mb-3 text-sm text-gray-400">You need a Neo Gaming Cafe account to join a tournament. It takes a minute.</p>
+                <p className="mb-3 text-sm text-gray-400">You need a Neo Rift account to join a tournament. It takes a minute.</p>
                 <div className="flex flex-wrap gap-3">
                   <Link href={`/auth?next=${encodeURIComponent(`/tournaments/${id}`)}`} className={`${btn} bg-cp-cyan text-black`}>Log in</Link>
                   <Link href={`/auth?mode=signup&next=${encodeURIComponent(`/tournaments/${id}`)}`} className={`${btn} bg-gray-700`}>Create an account</Link>

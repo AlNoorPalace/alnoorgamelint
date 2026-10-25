@@ -51,7 +51,7 @@ export function bookingConfirmationHtml(d: BookingEmailDetails): string {
   const time = d.start_time ? `${escapeHtml(d.start_time)} - ${escapeHtml(d.end_time)}` : 'Time is set when you arrive and check in'
   return `<html><body style="font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px;">
   <div style="max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px;">
-    <h1 style="color: #00ffff; text-align: center; margin-bottom: 10px;">Neo Gaming Cafe</h1>
+    <h1 style="color: #00ffff; text-align: center; margin-bottom: 10px;">Neo Rift</h1>
     <h2 style="color: #333; text-align: center;">Booking Confirmed! 🎮</h2>
     <div style="background: #1a1a1a; color: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
       <p style="margin: 8px 0;"><strong>Station:</strong> ${escapeHtml(d.station_name ?? 'Assigned at check-in')}</p>
@@ -61,12 +61,12 @@ export function bookingConfirmationHtml(d: BookingEmailDetails): string {
       <p style="margin: 8px 0;"><strong>Users:</strong> ${escapeHtml(d.user_count)} user(s)</p>
       <p style="margin: 8px 0; font-size: 18px;"><strong>Total: ₹${escapeHtml(d.total_amount)}</strong></p>
     </div>
-    <p style="text-align: center; color: #666; font-size: 16px;">See you at Neo Gaming Cafe! 🚀</p>
+    <p style="text-align: center; color: #666; font-size: 16px;">See you at Neo Rift! 🚀</p>
   </div></body></html>`
 }
 
 export function sendBookingConfirmation(to: string, details: BookingEmailDetails): Promise<MailResult> {
-  return sendEmail(to, 'Booking Confirmed - Neo Gaming Cafe', bookingConfirmationHtml(details))
+  return sendEmail(to, 'Booking Confirmed - Neo Rift', bookingConfirmationHtml(details))
 }
 
 export type ReminderKind = '1h' | '30m' | '5m'
@@ -76,7 +76,7 @@ export function reminderHtml(kind: ReminderKind, d: { station_name: string | nul
   const minutes = REMINDER_MINUTES[kind]
   return `<html><body style="font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px;">
   <div style="max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px;">
-    <h1 style="color: #00ffff; text-align: center;">Neo Gaming Cafe</h1>
+    <h1 style="color: #00ffff; text-align: center;">Neo Rift</h1>
     <h2 style="color: #333; text-align: center;">Reminder: Session in ${minutes} minutes! ⏰</h2>
     <div style="background: #1a1a1a; color: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
       <p><strong>Station:</strong> ${escapeHtml(d.station_name ?? 'N/A')}</p>
