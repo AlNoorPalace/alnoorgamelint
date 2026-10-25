@@ -237,7 +237,7 @@ export default function ManageTournamentPage() {
           {t.status !== 'draft' && (
             <div className="mb-6 rounded-lg bg-gray-900 p-4">
               <div className="mb-2 text-sm text-gray-400">Public page: <a className="text-cyan-400 underline" href={`/tournaments/${id}`} target="_blank" rel="noopener noreferrer">/tournaments/{id.slice(0, 8)}…</a></div>
-              <ShareButton title={t.name} text={`Join ${t.name} (${t.game}) at Neo Gaming Cafe!`} path={`/tournaments/${id}`} />
+              <ShareButton title={t.name} text={`Join ${t.name} (${t.game}) at Neo Rift!`} path={`/tournaments/${id}`} />
             </div>
           )}
 

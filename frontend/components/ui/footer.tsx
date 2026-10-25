@@ -20,7 +20,7 @@ export function Footer() {
           {/* Brand */}
           <div>
             <div className="text-2xl font-bold text-cp-yellow mb-4">
-              NEO<span className="text-cp-cyan">GAMING</span><span className="text-cp-yellow">CAFE</span>
+              NEO <span className="text-cp-cyan">RIFT</span>
             </div>
             <p className="text-gray-400 text-sm">
               Premium gaming experience in the heart of the city. Book your session and enter the matrix.
@@ -59,7 +59,7 @@ export function Footer() {
         {/* Bottom Bar */}
         <div className="border-t border-white/10 mt-8 pt-8 text-center">
           <p className="text-gray-400 text-sm">
-            © 2024 Neo Gaming Cafe. All rights reserved.
+            © 2024 Neo Rift. All rights reserved.
           </p>
         </div>
       </div>

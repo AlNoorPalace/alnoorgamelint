@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Neo Gaming Cafe - Night City',
+  title: 'Neo Rift - Night City',
   description: 'Book PS5 and PC gaming sessions',
 }
 

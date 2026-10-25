@@ -41,7 +41,7 @@ export function NavBar() {
       <div className="flex items-center justify-between h-full max-w-7xl mx-auto">
         {/* Logo */}
         <Link href="/" className="text-2xl font-bold text-cp-yellow">
-          NEO<span className="text-cp-cyan">GAMING</span><span className="text-cp-yellow">CAFE</span>
+          NEO <span className="text-cp-cyan">RIFT</span>
         </Link>
 
         {/* Navigation Links */}
