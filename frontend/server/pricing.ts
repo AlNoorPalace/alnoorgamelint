@@ -17,6 +17,8 @@ export interface PriceInput {
   discountValue?: number | null
   /** Rupee amount already granted by a coupon at booking time. The old edit path silently dropped it. */
   couponDiscount?: number | null
+  /** Extra controllers for the whole booking (count x per-hour price x hours), already worked out. */
+  controllerCharge?: number | null
 }
 
 export interface PriceBreakdown {
@@ -25,9 +27,9 @@ export interface PriceBreakdown {
   totalAmount: number
 }
 
-/** original = rate x hours x users + food; total = max(0, original - discount). */
+/** original = rate x hours x users + extra controllers + food; total = max(0, original - discount). */
 export function computePrice(i: PriceInput): PriceBreakdown {
-  const original = Math.round(toPaise(i.hourlyRate) * i.durationHours * i.userCount) + toPaise(i.foodTotal ?? 0)
+  const original = Math.round(toPaise(i.hourlyRate) * i.durationHours * i.userCount) + toPaise(i.foodTotal ?? 0) + toPaise(i.controllerCharge ?? 0)
   const value = i.discountValue ?? 0
   let discount = 0
   if (i.discountType === 'PERCENTAGE') discount = Math.round((original * value) / 100)

@@ -33,9 +33,16 @@ describe('walkIn', () => {
     expect(out).toMatchObject({ id: 'b1' })
     expect(rpcArgs(w.log, 'walkin_checkin')).toEqual({
       p_station_id: ST, p_user_id: null, p_guest_name: 'Rahul', p_guest_phone: '99999', p_duration_hours: 2, p_user_count: 2,
-      p_now_ist: '2026-10-12 15:00:00', p_payment_method: 'CASH', p_notes: null,
+      p_now_ist: '2026-10-12 15:00:00', p_payment_method: 'CASH', p_notes: null, p_extra_controllers: 0,
     })
     expect(w.log.some((e) => e.table === 'bookings' && has(e.calls, 'update'))).toBe(true) // timer started
+  })
+  it('passes extra controllers to the database and rejects absurd counts', async () => {
+    const w = world()
+    await walkIn(parse({ guest_name: 'A', extra_controllers: 3 }), w.db, NOW)
+    expect(rpcArgs(w.log, 'walkin_checkin')!.p_extra_controllers).toBe(3)
+    expect(() => parse({ guest_name: 'A', extra_controllers: 11 })).toThrow()
+    expect(() => parse({ guest_name: 'A', extra_controllers: -1 })).toThrow()
   })
   it('links a member by username (ignoring case) so their prepaid minutes apply', async () => {
     const w = world()
@@ -89,7 +96,7 @@ describe('walk-in failures explain themselves to staff', () => {
   const run = (error: object) => walkIn(parse({ guest_name: 'A' }), world({ rpc: { error } }).db, NOW)
   it('says which SQL file to run when the function is missing', async () => {
     await expect(run({ code: 'PGRST202', message: 'Could not find the function public.walkin_checkin(...) in the schema cache' })).rejects.toMatchObject({
-      status: 503, message: expect.stringContaining('10_walkin_checkin.sql'),
+      status: 503, message: expect.stringContaining('15_extra_controllers.sql'),
     })
   })
   it('passes on the database message for anything unexpected', async () => {
@@ -116,5 +123,20 @@ describe('a busy station says who is on it', () => {
   it('falls back to the plain message when no session can be found', async () => {
     const db = fakeDb({ tables: { bookings: { data: null } }, rpcs: { walkin_checkin: { error: { message: 'STATION_BUSY' } } } }).db
     await expect(walkIn(parse({ guest_name: 'A' }), db, NOW)).rejects.toMatchObject({ message: 'Someone is already playing on that station' })
+  })
+})
+
+describe('extra controllers on a booking', () => {
+  it('sends the new count to set_extra_controllers', async () => {
+    const { setExtraControllers } = await import('../services/admin/operations')
+    const w = fakeDb({ rpcs: { set_extra_controllers: { data: { id: 'b1', extra_controllers: 2 } } } })
+    await expect(setExtraControllers(ST, 2, w.db)).resolves.toMatchObject({ extra_controllers: 2 })
+    expect(rpcArgs(w.log, 'set_extra_controllers')).toEqual({ p_booking_id: ST, p_count: 2 })
+  })
+  it('explains refusals', async () => {
+    const { setExtraControllers } = await import('../services/admin/operations')
+    const run = (code: string) => setExtraControllers(ST, 1, fakeDb({ rpcs: { set_extra_controllers: { error: { message: code } } } }).db)
+    await expect(run('CONTROLLERS_NOT_OFFERED')).rejects.toMatchObject({ status: 400, message: expect.stringContaining('Stations') })
+    await expect(run('NOT_EDITABLE')).rejects.toMatchObject({ status: 400 })
   })
 })

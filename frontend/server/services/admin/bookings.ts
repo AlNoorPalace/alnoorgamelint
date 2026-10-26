@@ -165,15 +165,16 @@ export const updateBookingSchema = z.object({
   checked_in: z.boolean(),
   coupon_code: z.string().max(50).nullable(),
   coupon_discount: money,
+  extra_controllers: z.number().int().min(0).max(10),
 }).partial()
 
 export type UpdateBookingInput = z.infer<typeof updateBookingSchema>
 
-const PRICE_KEYS = ['duration_hours', 'discount_type', 'discount_value', 'hourly_rate', 'user_count', 'food_total', 'coupon_discount'] as const
+const PRICE_KEYS = ['duration_hours', 'discount_type', 'discount_value', 'hourly_rate', 'user_count', 'food_total', 'coupon_discount', 'extra_controllers'] as const
 
 // Fields where null / '' is a meaningful value (clear it). For every other field a null means "no value" and is ignored.
 const NULLABLE = new Set(['station_id', 'booking_notes', 'payment_method', 'cancelled_at', 'start_time', 'end_time', 'advance_payment_method', 'custom_hourly_rate', 'coupon_code'])
-const NUMERIC = new Set(['total_amount', 'duration_hours', 'user_count', 'advance_amount', 'remaining_amount', 'amount_paid', 'food_total', 'refund_amount', 'cancellation_fee', 'discount_value', 'original_amount', 'custom_hourly_rate', 'hourly_rate', 'coupon_discount'])
+const NUMERIC = new Set(['total_amount', 'duration_hours', 'user_count', 'advance_amount', 'remaining_amount', 'amount_paid', 'food_total', 'refund_amount', 'cancellation_fee', 'discount_value', 'original_amount', 'custom_hourly_rate', 'hourly_rate', 'coupon_discount', 'extra_controllers'])
 const IST_TEXT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 
 /** IST text as stored; legacy values (ISO with 'T', fractions, UTC offsets from the old check-in) are converted to it. */
@@ -224,7 +225,7 @@ function unchanged(key: string, before: unknown, after: unknown): boolean {
  * untouched hourly rate is no longer pinned as a custom rate). Re-prices when a price input changed.
  */
 export async function updateBooking(id: string, input: UpdateBookingInput, db: SupabaseClient = getSupabase()) {
-  const { data: b, error } = await db.from('bookings').select('*, stations(hourly_rate)').eq('id', id).maybeSingle()
+  const { data: b, error } = await db.from('bookings').select('*, stations(hourly_rate, extra_controller_rate)').eq('id', id).maybeSingle()
   if (error) throw new ApiError(500, 'Failed to update booking')
   if (!b) throw notFound('Booking not found')
 
@@ -246,17 +247,20 @@ export async function updateBooking(id: string, input: UpdateBookingInput, db: S
   const priceChanged = PRICE_KEYS.some((k) => (k === 'hourly_rate' ? 'custom_hourly_rate' : k) in changed)
   if (priceChanged) {
     const merged = { ...b, ...changed }
+    const controllerCharge = Math.round(Number(merged.extra_controllers ?? 0) * Number(b.stations?.extra_controller_rate ?? 0) * Number(merged.duration_hours ?? 1) * 100) / 100
     const price = computePrice({
       hourlyRate: Number(merged.custom_hourly_rate ?? b.stations?.hourly_rate ?? 0),
       durationHours: merged.duration_hours ?? 1,
       userCount: merged.user_count ?? 1,
       foodTotal: Number(merged.food_total ?? 0),
+      controllerCharge,
       discountType: merged.discount_type ?? 'NONE',
       discountValue: Number(merged.discount_value ?? 0),
       couponDiscount: Number(merged.coupon_discount ?? 0),
     })
     const paid = Number(merged.amount_paid ?? 0)
     changed.original_amount = price.originalAmount
+    changed.controller_charge = controllerCharge
     changed.total_amount = price.totalAmount
     changed.remaining_amount = remainingAmount(price.totalAmount, paid)
     // A bigger bill must not stay "PAID" (and a smaller one must not stay "PARTIAL"); prepaid/advance states are left alone.

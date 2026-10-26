@@ -25,6 +25,8 @@ function BookPageContent() {
   const [selectedDate, setSelectedDate] = useState(urlDate)
   const [duration, setDuration] = useState(1)
   const [userCount, setUserCount] = useState(1)
+  const [extraControllers, setExtraControllers] = useState(0)
+  const [extraRate, setExtraRate] = useState(0)
   const [advancePayment, setAdvancePayment] = useState(false)
   const [couponCode, setCouponCode] = useState('')
   const [couponDiscount, setCouponDiscount] = useState(0)
@@ -69,6 +71,17 @@ function BookPageContent() {
     
     return () => subscription?.unsubscribe()
   }, [])
+
+  // price of an extra controller: the chosen station's, else the first active station of the chosen type
+  useEffect(() => {
+    stations.getAll().then(({ data }) => {
+      const list = (data || []) as any[]
+      const s = list.find((x) => x.id === (assignedStationId || stationId)) || list.find((x) => x.active !== false && x.type === stationType)
+      const rate = Number(s?.extra_controller_rate || 0)
+      setExtraRate(rate)
+      if (rate <= 0) setExtraControllers(0)
+    })
+  }, [assignedStationId, stationId, stationType])
 
   // Initialize stationType from stationId if coming from /stations page
   useEffect(() => {
@@ -123,6 +136,7 @@ function BookPageContent() {
         end_time: null,
         duration_hours: duration,
         user_count: userCount,
+        extra_controllers: extraRate > 0 ? extraControllers : 0,
         advance_payment: advancePayment,
         food_items: [],
         food_total: 0,
@@ -266,6 +280,17 @@ function BookPageContent() {
               )}
 
 
+              {selectedDate && extraRate > 0 && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Extra controllers <span className="text-gray-400">(₹{extraRate} per controller per hour)</span></label>
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="rounded bg-gray-700 px-3 py-2" onClick={() => setExtraControllers((c) => Math.max(0, c - 1))}>-</button>
+                    <span className="w-8 text-center">{extraControllers}</span>
+                    <button type="button" className="rounded bg-gray-700 px-3 py-2" onClick={() => setExtraControllers((c) => Math.min(10, c + 1))}>+</button>
+                  </div>
+                </div>
+              )}
+
               {user && selectedDate && (
                 <div>
                   <label className="block text-sm font-medium mb-2">Coupon Code (Optional)</label>
@@ -295,14 +320,14 @@ function BookPageContent() {
                       : stationType === 'PC'
                       ? (userCount > 1 ? 'PCs' : 'PC')
                       : (userCount > 1 ? 'users' : 'user')}{' '}
+                    {extraControllers > 0 && extraRate > 0 && `+ ${extraControllers} extra controller${extraControllers > 1 ? 's' : ''} × ₹${extraRate} × ${duration} hour${duration > 1 ? 's' : ''} `}
                     {couponDiscount > 0 && `- ${couponDiscount}% off`}
                   </div>
                   <div className="flex justify-between text-sm mb-1">
                     <span>Total:</span>
                     <span className="text-white">
                       ₹{Math.round(
-                        (assignedStationRate || stationRate) * duration * userCount -
-                          ((assignedStationRate || stationRate) * duration * userCount) * couponDiscount / 100
+                        ((assignedStationRate || stationRate) * duration * userCount + extraControllers * extraRate * duration) * (1 - couponDiscount / 100)
                       )}
                     </span>
                   </div>
