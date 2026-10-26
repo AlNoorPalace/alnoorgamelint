@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { apiFetch, apiError } from '@/lib/api'
 import { MemberSearch, type Member } from './member-search'
 
-export interface WalkinStation { id: string; name: string; type: string; hourly_rate?: number | null; status: 'available' | 'pending' | 'occupied' }
+export interface WalkinStation { id: string; name: string; type: string; hourly_rate?: number | null; extra_controller_rate?: number | null; status: 'available' | 'pending' | 'occupied' }
 
 const field = 'w-full rounded border border-cp-cyan/30 bg-cp-black/50 px-3 py-2 text-white'
 
@@ -18,6 +18,7 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
   const [picked, setPicked] = useState<Member | null>(null)
   const [hours, setHours] = useState(1)
   const [players, setPlayers] = useState(1)
+  const [controllers, setControllers] = useState(0)
   const [payment, setPayment] = useState('')
   const [notes, setNotes] = useState('')
   const [startTimer, setStartTimer] = useState(true)
@@ -26,14 +27,16 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
 
   const chosen = free.find((s) => s.id === station)
   const rate = Number(chosen?.hourly_rate ?? 0)
-  const estimate = rate * hours * players
+  const controllerRate = Number(chosen?.extra_controller_rate ?? 0)
+  const controllerCost = controllers * controllerRate * hours
+  const estimate = rate * hours * players + controllerCost
   const ready = !!station && (member ? picked : name.trim())
 
   const submit = async () => {
     setBusy(true)
     setError(null)
     try {
-      const body: Record<string, unknown> = { station_id: station, duration_hours: hours, user_count: players, start_timer: startTimer }
+      const body: Record<string, unknown> = { station_id: station, duration_hours: hours, user_count: players, extra_controllers: controllerRate > 0 ? controllers : 0, start_timer: startTimer }
       if (member) body.username = picked!.username
       else { body.guest_name = name.trim(); if (phone.trim()) body.guest_phone = phone.trim() }
       if (payment) body.payment_method = payment
@@ -90,7 +93,7 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
                   <button type="button" className="rounded bg-gray-600 px-3 py-2" onClick={() => setHours((h) => Math.min(24, h + 1))}>+</button>
                 </div>
               </label>
-              <label className="block text-sm text-white">Players / controllers
+              <label className="block text-sm text-white">Players
                 <div className="mt-1 flex items-center gap-2">
                   <button type="button" className="rounded bg-gray-600 px-3 py-2" onClick={() => setPlayers((p) => Math.max(1, p - 1))}>-</button>
                   <span className="w-8 text-center">{players}</span>
@@ -98,6 +101,19 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
                 </div>
               </label>
             </div>
+
+            {controllerRate > 0 && (
+              <div className="text-sm text-white">Extra controllers <span className="text-gray-400">(₹{controllerRate} per controller per hour)</span>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <button type="button" className="rounded bg-gray-600 px-3 py-2" onClick={() => setControllers((c) => Math.max(0, c - 1))}>-</button>
+                  <span className="w-8 text-center">{controllers}</span>
+                  <button type="button" className="rounded bg-gray-600 px-3 py-2" onClick={() => setControllers((c) => Math.min(10, c + 1))}>+</button>
+                  {[1, 2, 3].map((n) => (
+                    <button key={n} type="button" onClick={() => setControllers(n)} className={`rounded px-3 py-2 text-xs ${controllers === n ? 'bg-cp-cyan text-cp-black' : 'bg-gray-700 text-white'}`}>{n}</button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <label className="block text-sm text-white">Payment method (optional)
               <select className={`${field} mt-1`} value={payment} onChange={(e) => setPayment(e.target.value)}>
@@ -110,7 +126,7 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
             <label className="block text-sm text-white">Notes (optional)<input className={`${field} mt-1`} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
             <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" checked={startTimer} onChange={(e) => setStartTimer(e.target.checked)} />Start the timer now</label>
 
-            {rate > 0 && <div className="rounded bg-black/30 p-3 text-sm text-gray-300">Estimated: ₹{rate} × {hours} h × {players} = <b className="text-cp-yellow">₹{estimate}</b> (payment is recorded afterwards on the booking)</div>}
+            {rate > 0 && <div className="rounded bg-black/30 p-3 text-sm text-gray-300">Estimated: ₹{rate} × {hours} h × {players}{controllers > 0 ? ` + ${controllers} extra controller${controllers > 1 ? 's' : ''} × ₹${controllerRate} × ${hours} h (₹${controllerCost})` : ''} = <b className="text-cp-yellow">₹{estimate}</b> (payment is recorded afterwards on the booking)</div>}
           </div>
         )}
 

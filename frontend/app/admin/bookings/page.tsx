@@ -3,10 +3,26 @@
 import { useState, useEffect } from 'react'
 import { AdminGuard } from '@/components/ui/admin-guard'
 import { bookings, admin } from '@/lib/supabase'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, apiError } from '@/lib/api'
 import { WalkinModal } from '@/components/admin/walkin-modal'
 import { SendReceiptModal } from '@/components/admin/send-receipt-modal'
 
+
+/** Extra controllers on a booking: shows the count and lets staff add or remove one; the booking total updates with it. */
+function ControllerControl({ booking, onChange }: { booking: any; onChange: (id: string, count: number) => void }) {
+  const rate = Number(booking?.stations?.extra_controller_rate || 0)
+  const count = Number(booking?.extra_controllers || 0)
+  if (['ENDED', 'CANCELLED'].includes(booking?.status) || (rate <= 0 && count === 0)) return null
+  return (
+    <div className="mt-1 flex items-center gap-1 text-xs text-gray-300">
+      <span>🎮 Extra controllers</span>
+      <button type="button" disabled={count <= 0} className="rounded bg-gray-700 px-1.5 disabled:opacity-40" onClick={() => onChange(booking.id, count - 1)}>-</button>
+      <span className="w-4 text-center text-cp-yellow">{count}</span>
+      <button type="button" disabled={rate <= 0} className="rounded bg-gray-700 px-1.5 disabled:opacity-40" onClick={() => onChange(booking.id, count + 1)}>+</button>
+      {rate > 0 && <span className="text-gray-500">(₹{rate}/hr each)</span>}
+    </div>
+  )
+}
 
 // Booking Edit Modal Component
 const BookingModal = ({ booking, onSave, onClose }: any) => {
@@ -28,7 +44,8 @@ const BookingModal = ({ booking, onSave, onClose }: any) => {
     const food_total = booking?.food_total || 0
     
     // Calculate original amount
-    const original_amount = (formData.hourly_rate * formData.duration_hours * user_count) + food_total
+    const controller_charge = (booking?.extra_controllers || 0) * Number(booking?.stations?.extra_controller_rate || 0) * formData.duration_hours
+    const original_amount = (formData.hourly_rate * formData.duration_hours * user_count) + food_total + controller_charge
     
     // Apply discount
     let discount_amount = 0
@@ -44,7 +61,7 @@ const BookingModal = ({ booking, onSave, onClose }: any) => {
     if (Math.abs(formData.total_amount - new_total) > 0.01) {
       setFormData(prev => ({...prev, total_amount: new_total}))
     }
-  }, [formData.hourly_rate, formData.duration_hours, formData.discount_type, formData.discount_value, formData.user_count, booking?.food_total])
+  }, [formData.hourly_rate, formData.duration_hours, formData.discount_type, formData.discount_value, formData.user_count, booking?.food_total, booking?.extra_controllers, booking?.stations?.extra_controller_rate])
 
   const handleSave = () => {
     onSave({ ...booking, ...formData })
@@ -272,6 +289,7 @@ const ViewModal = ({ booking, onClose }: any) => {
           <div><strong>Expected End Time:</strong> {getExpectedEndTime()}</div>
           <div><strong>Duration:</strong> {booking?.duration_hours}h</div>
           <div><strong>Joysticks/Users:</strong> {booking?.user_count || 1}</div>
+          {Number(booking?.extra_controllers) > 0 && <div><strong>Extra controllers:</strong> {booking.extra_controllers} (₹{booking.controller_charge})</div>}
           <div><strong>Amount:</strong> ₹{booking?.total_amount}</div>
           {(foodItems.length > 0 || foodTotal > 0) && (
             <>
@@ -670,6 +688,19 @@ export default function AdminBookings() {
       }
     } catch (error) {
       alert('Failed to start timer')
+    }
+  }
+
+  const handleControllers = async (bookingId: string, count: number) => {
+    try {
+      const res = await apiFetch(`/api/v1/admin/bookings/${bookingId}/controllers`, { method: 'POST', body: JSON.stringify({ count }) })
+      if (!res.ok) {
+        alert(await apiError(res, 'Failed to update extra controllers'))
+        return
+      }
+      loadStationsWithReservations()
+    } catch {
+      alert('Failed to update extra controllers')
     }
   }
 
@@ -1193,6 +1224,7 @@ export default function AdminBookings() {
                                   <p className="text-gray-400 text-xs">
                                     {reservation.duration_hours}h • ₹{reservation.total_amount || 0}
                                   </p>
+                                <ControllerControl booking={reservation} onChange={handleControllers} />
                                   {reservation.checked_in_at && (
                                     <>
                                       <p className="text-green-400 text-xs mt-1">✓ Checked In</p>
@@ -1364,6 +1396,7 @@ export default function AdminBookings() {
                               <p className="text-gray-400 text-xs">
                                 {reservation.duration_hours}h • ₹{reservation.total_amount || 0}
                               </p>
+                            <ControllerControl booking={reservation} onChange={handleControllers} />
                               {assignedStation && (
                                 <p className="text-gray-300 text-xs mt-1">Station: {assignedStation.name}</p>
                               )}
@@ -1639,7 +1672,7 @@ export default function AdminBookings() {
       {walkin && (
         <WalkinModal
           key={stationsData.length}
-          stations={stationsData.filter((sd: any) => sd.station.id !== null).map((sd: any) => ({ id: sd.station.id, name: sd.station.name, type: sd.station.type, hourly_rate: sd.station.hourly_rate, status: getStationStatus(sd) }))}
+          stations={stationsData.filter((sd: any) => sd.station.id !== null).map((sd: any) => ({ id: sd.station.id, name: sd.station.name, type: sd.station.type, hourly_rate: sd.station.hourly_rate, extra_controller_rate: sd.station.extra_controller_rate, status: getStationStatus(sd) }))}
           stationId={walkin.stationId}
           onClose={() => setWalkin(null)}
           onDone={() => { setWalkin(null); loadStationsWithReservations(); loadBookings(); setViewMode('stations') }}

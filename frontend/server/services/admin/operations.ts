@@ -26,6 +26,7 @@ export const walkinSchema = z
     station_id: z.guid('Choose a station'),
     duration_hours: z.number().int().min(1).max(24).default(1),
     user_count: z.number().int().min(1).max(20).default(1),
+    extra_controllers: z.number().int().min(0).max(10).default(0),
     username: z.string().trim().min(1).max(30).optional(),
     guest_name: z.string().trim().min(1).max(60).optional(),
     guest_phone: z.string().trim().max(20).optional(),
@@ -113,9 +114,10 @@ export async function walkIn(input: z.infer<typeof walkinSchema>, db: SupabaseCl
     p_now_ist: toIstString(now),
     p_payment_method: input.payment_method ?? null,
     p_notes: input.notes ?? null,
+    p_extra_controllers: input.extra_controllers,
   })
   if (error || !data) {
-    const mapped = staffDetail(mapRpcError(error, 'Failed to check in the player', WALKIN_ERRORS), error, 'walkin_checkin', '10_walkin_checkin.sql')
+    const mapped = staffDetail(mapRpcError(error, 'Failed to check in the player', WALKIN_ERRORS), error, 'walkin_checkin', '15_extra_controllers.sql')
     if (String(error?.message).includes('STATION_BUSY')) throw await describeBusy(db, input.station_id, mapped)
     throw mapped
   }
@@ -171,6 +173,26 @@ export async function startGrace(bookingId: string, db: SupabaseClient = getSupa
   const { data: existing } = await db.from('bookings').select('grace_time_started_at').eq('id', bookingId).maybeSingle()
   if (!existing) throw notFound('Booking not found')
   return { message: 'Grace time started', grace_started_at: existing.grace_time_started_at }
+}
+
+export const controllersSchema = z.object({ count: z.number().int().min(0).max(10) })
+
+/** Sets how many extra controllers a booking has; the booking total moves by the difference. */
+export async function setExtraControllers(bookingId: string, count: number, db: SupabaseClient = getSupabase()) {
+  const { data, error } = await db.rpc('set_extra_controllers', { p_booking_id: bookingId, p_count: count })
+  if (error || !data) {
+    throw staffDetail(
+      mapRpcError(error, 'Failed to update extra controllers', {
+        NOT_EDITABLE: [400, 'This booking has ended or was cancelled'],
+        INVALID_CONTROLLERS: [400, 'Extra controllers must be between 0 and 10'],
+        CONTROLLERS_NOT_OFFERED: [400, 'This station has no extra controller price. Set one in Stations first'],
+      }),
+      error,
+      'set_extra_controllers',
+      '15_extra_controllers.sql',
+    )
+  }
+  return data
 }
 
 export async function extendHour(bookingId: string, db: SupabaseClient = getSupabase()) {

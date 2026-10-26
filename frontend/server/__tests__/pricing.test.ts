@@ -9,6 +9,11 @@ describe('computePrice', () => {
       originalAmount: 700, discountAmount: 0, totalAmount: 700,
     })
   })
+  it('adds the extra controller charge before any discount', () => {
+    expect(computePrice({ hourlyRate: 150, durationHours: 2, userCount: 1, controllerCharge: 180, discountType: 'PERCENTAGE', discountValue: 10 })).toEqual({
+      originalAmount: 480, discountAmount: 48, totalAmount: 432,
+    })
+  })
   it('applies percentage discounts to the whole original (incl. food)', () => {
     const r = computePrice({ hourlyRate: 100, durationHours: 1, userCount: 1, foodTotal: 100, discountType: 'PERCENTAGE', discountValue: 10 })
     expect(r).toEqual({ originalAmount: 200, discountAmount: 20, totalAmount: 180 })

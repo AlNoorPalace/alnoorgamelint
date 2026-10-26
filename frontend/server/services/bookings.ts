@@ -26,6 +26,7 @@ export const createBookingSchema = z.object({
   food_items: z.array(z.string().trim().min(1)).max(50).default([]),
   food_total: z.number().optional(),
   coupon_code: z.string().trim().max(50).nullish(),
+  extra_controllers: z.number().int().min(0).max(10).default(0),
 })
 export type CreateBookingInput = z.infer<typeof createBookingSchema>
 
@@ -36,6 +37,7 @@ const RPC_ERRORS: Record<string, [number, string]> = {
   NO_STATIONS_OF_TYPE: [404, 'No stations available'],
   STATION_REQUIRED: [400, 'Either station_id or station_type must be provided'],
   INVALID_COUPON: [400, 'Invalid or expired coupon'],
+  INVALID_CONTROLLERS: [400, 'Extra controllers must be between 0 and 10'],
   INVALID_DURATION: [400, 'duration_hours must be between 1 and 24'],
   INVALID_USER_COUNT: [400, 'user_count must be at least 1'],
   INVALID_FOOD_TOTAL: [400, 'Invalid food total'],
@@ -111,6 +113,7 @@ export async function createBooking(user: AuthUser, input: CreateBookingInput, d
     p_food_items: input.food_items,
     p_food_total: foodTotal,
     p_coupon_code: input.coupon_code || null,
+    p_extra_controllers: input.extra_controllers,
   })
   if (error || !data) throw mapRpcError(error, 'Failed to create booking')
   const booking = data as Record<string, unknown> & { id: string; station_id: string | null }

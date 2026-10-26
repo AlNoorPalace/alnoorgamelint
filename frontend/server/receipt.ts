@@ -16,6 +16,8 @@ export interface ReceiptBooking {
   total_amount?: number | string | null
   original_amount?: number | string | null
   food_total?: number | string | null
+  extra_controllers?: number | null
+  controller_charge?: number | string | null
   discount_type?: string | null
   discount_value?: number | string | null
   coupon_code?: string | null
@@ -53,11 +55,13 @@ export function receiptLines(b: ReceiptBooking) {
   const food = num(b.food_total)
   const total = num(b.total_amount)
   const original = num(b.original_amount)
-  const session = original > 0 ? Math.max(0, original - food) : rate * hours * users
+  const controllers = num(b.extra_controllers)
+  const controllerCharge = num(b.controller_charge)
+  const session = original > 0 ? Math.max(0, original - food - controllerCharge) : rate * hours * users
   const type = (b.discount_type ?? 'NONE').toUpperCase()
   const value = num(b.discount_value)
   const discount = computePrice({ hourlyRate: 0, durationHours: 1, userCount: 1, foodTotal: session + food, discountType: type, discountValue: value }).discountAmount
-  return { rate, hours, users, food, total, session, discount, discountType: type, discountValue: value, coupon: num(b.coupon_discount) }
+  return { rate, hours, users, controllers, controllerCharge, food, total, session, discount, discountType: type, discountValue: value, coupon: num(b.coupon_discount) }
 }
 
 let fonts: { regular: Buffer; bold: Buffer } | undefined
@@ -138,6 +142,7 @@ export async function buildReceiptPdf(b: ReceiptBooking): Promise<Uint8Array> {
   y -= 18
   row('Session Amount', rupees(c.session), y)
   y -= 18
+  if (c.controllers > 0 && c.controllerCharge > 0) { row(`Extra controllers (${c.controllers})`, rupees(c.controllerCharge), y); y -= 18 }
   if (c.food > 0) { row('Food & Snacks', rupees(c.food), y); y -= 18 }
   if (c.discount > 0) {
     row('Discount', `-${c.discountType === 'PERCENTAGE' ? `${c.discountValue}%` : rupees(c.discountValue)} (-${rupees(c.discount)})`, y)

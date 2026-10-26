@@ -63,6 +63,7 @@ export default function AdminStations() {
       name: station?.name || '',
       type: station?.type || 'PS5',
       hourly_rate: station?.hourly_rate || 120,
+      extra_controller_rate: station?.extra_controller_rate || 0,
       description: station?.description || '',
       active: station?.active !== false,
       image_url: station?.image_url || ''
@@ -100,6 +101,16 @@ export default function AdminStations() {
                 className="bg-gray-800 border border-cyan-500/30 rounded px-3 py-2 text-white"
               />
             </div>
+            <label className="block text-sm text-gray-300">
+              Extra controller price (₹ per controller per hour, 0 = not offered)
+              <input
+                type="number"
+                min={0}
+                value={formData.extra_controller_rate}
+                onChange={(e) => setFormData({...formData, extra_controller_rate: Math.max(0, Number(e.target.value) || 0)})}
+                className="mt-1 w-full bg-gray-800 border border-cyan-500/30 rounded px-3 py-2 text-white"
+              />
+            </label>
             <textarea
               placeholder="Description"
               value={formData.description}
@@ -328,6 +339,7 @@ export default function AdminStations() {
                     <div className="space-y-2 text-gray-300 mb-4">
                       <div><strong>Type:</strong> {station.type}</div>
                       <div><strong>Rate:</strong> ₹{station.hourly_rate}/hr</div>
+                      {Number(station.extra_controller_rate) > 0 && <div><strong>Extra controller:</strong> ₹{station.extra_controller_rate}/hr</div>}
                       <div><strong>Description:</strong> {station.description}</div>
                     </div>
                     <div className="flex gap-2">
