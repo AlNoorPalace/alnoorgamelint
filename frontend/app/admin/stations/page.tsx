@@ -44,12 +44,11 @@ export default function AdminStations() {
   const handleSave = async (input: any) => {
     const station = { ...input, player_prices: cleanPlayerPrices(input.player_prices) }
     try {
-      if (station.id) {
-        // Edit existing
-        await stations.update(station.id, station)
-      } else {
-        // Add new
-        await stations.create(station)
+      const { error } = station.id ? await stations.update(station.id, station) : await stations.create(station)
+      if (error) {
+        const missing = /column|schema cache/i.test(error.message || '')
+        alert(`Could not save the station: ${error.message}${missing ? '\n\nA database update is missing. Run sql/setup/15_extra_controllers.sql and 16_player_pricing.sql in Supabase, then try again.' : ''}`)
+        return
       }
       setEditingStation(null)
       setShowAddForm(false)
