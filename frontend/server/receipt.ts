@@ -61,7 +61,8 @@ export function receiptLines(b: ReceiptBooking) {
   const type = (b.discount_type ?? 'NONE').toUpperCase()
   const value = num(b.discount_value)
   const discount = computePrice({ hourlyRate: 0, durationHours: 1, userCount: 1, foodTotal: session + food, discountType: type, discountValue: value }).discountAmount
-  return { rate, hours, users, controllers, controllerCharge, food, total, session, discount, discountType: type, discountValue: value, coupon: num(b.coupon_discount) }
+  const groupRate = hours > 0 && session > 0 ? Math.round((session / hours) * 100) / 100 : rate * users
+  return { rate, groupRate, hours, users, controllers, controllerCharge, food, total, session, discount, discountType: type, discountValue: value, coupon: num(b.coupon_discount) }
 }
 
 let fonts: { regular: Buffer; bold: Buffer } | undefined
@@ -138,7 +139,8 @@ export async function buildReceiptPdf(b: ReceiptBooking): Promise<Uint8Array> {
   y -= 25
   heading('CHARGES', y)
   y -= 20
-  row('Rate per Hour', rupees(c.rate), y)
+  if (Math.abs(c.groupRate - c.rate * c.users) > 0.01) row(`Price per Hour (${c.users} player${c.users > 1 ? 's' : ''})`, rupees(c.groupRate), y)
+  else row('Rate per Hour', rupees(c.rate), y)
   y -= 18
   row('Session Amount', rupees(c.session), y)
   y -= 18

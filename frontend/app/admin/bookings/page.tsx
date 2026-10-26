@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { AdminGuard } from '@/components/ui/admin-guard'
 import { bookings, admin } from '@/lib/supabase'
 import { apiFetch, apiError } from '@/lib/api'
+import { groupHourlyRate } from '@/lib/playerPricing'
 import { WalkinModal } from '@/components/admin/walkin-modal'
 import { SendReceiptModal } from '@/components/admin/send-receipt-modal'
 
@@ -45,7 +46,8 @@ const BookingModal = ({ booking, onSave, onClose }: any) => {
     
     // Calculate original amount
     const controller_charge = (booking?.extra_controllers || 0) * Number(booking?.stations?.extra_controller_rate || 0) * formData.duration_hours
-    const original_amount = (formData.hourly_rate * formData.duration_hours * user_count) + food_total + controller_charge
+    const customRate = booking?.custom_hourly_rate != null || formData.hourly_rate !== Number(booking?.stations?.hourly_rate) ? formData.hourly_rate : null
+    const original_amount = (groupHourlyRate(booking?.stations, user_count, customRate) * formData.duration_hours) + food_total + controller_charge
     
     // Apply discount
     let discount_amount = 0
@@ -1672,7 +1674,7 @@ export default function AdminBookings() {
       {walkin && (
         <WalkinModal
           key={stationsData.length}
-          stations={stationsData.filter((sd: any) => sd.station.id !== null).map((sd: any) => ({ id: sd.station.id, name: sd.station.name, type: sd.station.type, hourly_rate: sd.station.hourly_rate, extra_controller_rate: sd.station.extra_controller_rate, status: getStationStatus(sd) }))}
+          stations={stationsData.filter((sd: any) => sd.station.id !== null).map((sd: any) => ({ id: sd.station.id, name: sd.station.name, type: sd.station.type, hourly_rate: sd.station.hourly_rate, extra_controller_rate: sd.station.extra_controller_rate, player_prices: sd.station.player_prices, status: getStationStatus(sd) }))}
           stationId={walkin.stationId}
           onClose={() => setWalkin(null)}
           onDone={() => { setWalkin(null); loadStationsWithReservations(); loadBookings(); setViewMode('stations') }}

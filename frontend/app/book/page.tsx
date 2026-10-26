@@ -1,5 +1,6 @@
 'use client'
 
+import { cleanPlayerPrices, groupHourlyRate, type PlayerPrice } from '@/lib/playerPricing'
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { NavBar } from '@/components/ui/navbar'
@@ -27,6 +28,7 @@ function BookPageContent() {
   const [userCount, setUserCount] = useState(1)
   const [extraControllers, setExtraControllers] = useState(0)
   const [extraRate, setExtraRate] = useState(0)
+  const [playerPrices, setPlayerPrices] = useState<PlayerPrice[]>([])
   const [advancePayment, setAdvancePayment] = useState(false)
   const [couponCode, setCouponCode] = useState('')
   const [couponDiscount, setCouponDiscount] = useState(0)
@@ -79,6 +81,9 @@ function BookPageContent() {
       const s = list.find((x) => x.id === (assignedStationId || stationId)) || list.find((x) => x.active !== false && x.type === stationType)
       const rate = Number(s?.extra_controller_rate || 0)
       setExtraRate(rate)
+      const presets = cleanPlayerPrices(s?.player_prices)
+      setPlayerPrices(presets)
+      if (presets.length > 0) setUserCount((n) => (presets.some((p) => p.players === n) ? n : presets[0].players))
       if (rate <= 0) setExtraControllers(0)
     })
   }, [assignedStationId, stationId, stationType])
@@ -106,6 +111,8 @@ function BookPageContent() {
     })
     router.push(`/auth?${params.toString()}`)
   }
+
+  const groupRate = groupHourlyRate({ hourly_rate: assignedStationRate || stationRate, player_prices: playerPrices }, userCount)
 
   const handleBooking = async () => {
     if (!user || !selectedDate) {
@@ -265,6 +272,16 @@ function BookPageContent() {
                   <label className="block text-sm font-medium mb-2">
                     {stationType === 'PS5' ? 'Number of Joystick' : stationType === 'PC' ? 'Number of PC' : 'Number of Users'}
                   </label>
+                  {playerPrices.length > 0 ? (
+                    <select
+                      value={userCount}
+                      onChange={(e) => setUserCount(Number(e.target.value))}
+                      className="w-full bg-gray-900 border border-cp-cyan/30 rounded px-3 py-2 focus:border-cp-cyan focus:outline-none text-white"
+                      title="Number of players"
+                    >
+                      {playerPrices.map((p) => <option key={p.players} value={p.players}>{p.players} player{p.players > 1 ? 's' : ''} - ₹{p.price}/hour</option>)}
+                    </select>
+                  ) : (
                   <input
                     type="text"
                     inputMode="numeric"
@@ -276,6 +293,7 @@ function BookPageContent() {
                     className="w-full bg-gray-900 border border-cp-cyan/30 rounded px-3 py-2 focus:border-cp-cyan focus:outline-none text-white"
                     title="Enter number of users"
                   />
+                  )}
                 </div>
               )}
 
@@ -314,12 +332,14 @@ function BookPageContent() {
               {user && selectedDate && (
                 <div className="border-t border-cp-cyan/20 pt-4">
                   <div className="text-sm text-gray-300 mb-2">
-                    ₹{assignedStationRate || stationRate}/hour × {duration} hour{duration > 1 ? 's' : ''} × {userCount}{' '}
+                    {playerPrices.length > 0
+                      ? <>{userCount} player{userCount > 1 ? 's' : ''} ₹{groupRate}/hour × {duration} hour{duration > 1 ? 's' : ''}{' '}</>
+                      : <>₹{assignedStationRate || stationRate}/hour × {duration} hour{duration > 1 ? 's' : ''} × {userCount}{' '}
                     {stationType === 'PS5'
                       ? (userCount > 1 ? 'joysticks' : 'joystick')
                       : stationType === 'PC'
                       ? (userCount > 1 ? 'PCs' : 'PC')
-                      : (userCount > 1 ? 'users' : 'user')}{' '}
+                      : (userCount > 1 ? 'users' : 'user')}{' '}</>}
                     {extraControllers > 0 && extraRate > 0 && `+ ${extraControllers} extra controller${extraControllers > 1 ? 's' : ''} × ₹${extraRate} × ${duration} hour${duration > 1 ? 's' : ''} `}
                     {couponDiscount > 0 && `- ${couponDiscount}% off`}
                   </div>
@@ -327,7 +347,7 @@ function BookPageContent() {
                     <span>Total:</span>
                     <span className="text-white">
                       ₹{Math.round(
-                        ((assignedStationRate || stationRate) * duration * userCount + extraControllers * extraRate * duration) * (1 - couponDiscount / 100)
+                        (groupRate * duration + extraControllers * extraRate * duration) * (1 - couponDiscount / 100)
                       )}
                     </span>
                   </div>
