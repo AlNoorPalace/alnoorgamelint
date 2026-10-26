@@ -74,7 +74,7 @@ export default function AdminStations() {
 
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-gray-900 border border-cyan-500/30 rounded-lg p-6 w-full max-w-md mx-4">
+        <div className="bg-gray-900 border border-cyan-500/30 rounded-lg p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
           <h3 className="text-yellow-400 font-bold text-xl mb-4">
             {station?.id ? 'Edit Station' : 'Add New Station'}
           </h3>
