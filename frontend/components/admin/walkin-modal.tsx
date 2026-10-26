@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import { apiFetch, apiError } from '@/lib/api'
+import { cleanPlayerPrices, groupHourlyRate } from '@/lib/playerPricing'
 import { MemberSearch, type Member } from './member-search'
 
-export interface WalkinStation { id: string; name: string; type: string; hourly_rate?: number | null; extra_controller_rate?: number | null; status: 'available' | 'pending' | 'occupied' }
+export interface WalkinStation { id: string; name: string; type: string; hourly_rate?: number | null; extra_controller_rate?: number | null; player_prices?: unknown; status: 'available' | 'pending' | 'occupied' }
 
 const field = 'w-full rounded border border-cp-cyan/30 bg-cp-black/50 px-3 py-2 text-white'
 
@@ -27,9 +28,12 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
 
   const chosen = free.find((s) => s.id === station)
   const rate = Number(chosen?.hourly_rate ?? 0)
+  const presets = cleanPlayerPrices(chosen?.player_prices)
+  const hasPresets = presets.length > 0
+  const groupRate = groupHourlyRate(chosen, players)
   const controllerRate = Number(chosen?.extra_controller_rate ?? 0)
   const controllerCost = controllers * controllerRate * hours
-  const estimate = rate * hours * players + controllerCost
+  const estimate = groupRate * hours + controllerCost
   const ready = !!station && (member ? picked : name.trim())
 
   const submit = async () => {
@@ -64,7 +68,11 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
         ) : (
           <div className="space-y-4">
             <label className="block text-sm text-white">Station
-              <select className={`${field} mt-1`} value={station} onChange={(e) => setStation(e.target.value)}>
+              <select className={`${field} mt-1`} value={station} onChange={(e) => {
+                setStation(e.target.value)
+                const next = cleanPlayerPrices(free.find((s) => s.id === e.target.value)?.player_prices)
+                if (next.length > 0 && !next.some((p) => p.players === players)) setPlayers(next[0].players)
+              }}>
                 {free.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.type}){s.status === 'pending' ? ' - has a reservation today' : ''}</option>)}
               </select>
             </label>
@@ -94,11 +102,17 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
                 </div>
               </label>
               <label className="block text-sm text-white">Players
+                {hasPresets ? (
+                  <select className={`${field} mt-1`} value={players} onChange={(e) => setPlayers(Number(e.target.value))}>
+                    {presets.map((p) => <option key={p.players} value={p.players}>{p.players} player{p.players > 1 ? 's' : ''} - ₹{p.price}/hr</option>)}
+                  </select>
+                ) : (
                 <div className="mt-1 flex items-center gap-2">
                   <button type="button" className="rounded bg-gray-600 px-3 py-2" onClick={() => setPlayers((p) => Math.max(1, p - 1))}>-</button>
                   <span className="w-8 text-center">{players}</span>
                   <button type="button" className="rounded bg-gray-600 px-3 py-2" onClick={() => setPlayers((p) => Math.min(20, p + 1))}>+</button>
                 </div>
+                )}
               </label>
             </div>
 
@@ -126,7 +140,7 @@ export function WalkinModal({ stations, stationId, onClose, onDone }: { stations
             <label className="block text-sm text-white">Notes (optional)<input className={`${field} mt-1`} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
             <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" checked={startTimer} onChange={(e) => setStartTimer(e.target.checked)} />Start the timer now</label>
 
-            {rate > 0 && <div className="rounded bg-black/30 p-3 text-sm text-gray-300">Estimated: ₹{rate} × {hours} h × {players}{controllers > 0 ? ` + ${controllers} extra controller${controllers > 1 ? 's' : ''} × ₹${controllerRate} × ${hours} h (₹${controllerCost})` : ''} = <b className="text-cp-yellow">₹{estimate}</b> (payment is recorded afterwards on the booking)</div>}
+            {(rate > 0 || hasPresets) && <div className="rounded bg-black/30 p-3 text-sm text-gray-300">Estimated: {hasPresets ? `${players} player${players > 1 ? 's' : ''} ₹${groupRate}` : `₹${rate} × ${players}`} × {hours} h{controllers > 0 ? ` + ${controllers} extra controller${controllers > 1 ? 's' : ''} × ₹${controllerRate} × ${hours} h (₹${controllerCost})` : ''} = <b className="text-cp-yellow">₹{estimate}</b> (payment is recorded afterwards on the booking)</div>}
           </div>
         )}
 

@@ -19,6 +19,8 @@ export interface PriceInput {
   couponDiscount?: number | null
   /** Extra controllers for the whole booking (count x per-hour price x hours), already worked out. */
   controllerCharge?: number | null
+  /** Per-hour price for the whole group (a preset for this player count). When set it replaces rate x users. */
+  groupRate?: number | null
 }
 
 export interface PriceBreakdown {
@@ -29,7 +31,7 @@ export interface PriceBreakdown {
 
 /** original = rate x hours x users + extra controllers + food; total = max(0, original - discount). */
 export function computePrice(i: PriceInput): PriceBreakdown {
-  const original = Math.round(toPaise(i.hourlyRate) * i.durationHours * i.userCount) + toPaise(i.foodTotal ?? 0) + toPaise(i.controllerCharge ?? 0)
+  const original = Math.round(toPaise(i.groupRate ?? i.hourlyRate * i.userCount) * i.durationHours) + toPaise(i.foodTotal ?? 0) + toPaise(i.controllerCharge ?? 0)
   const value = i.discountValue ?? 0
   let discount = 0
   if (i.discountType === 'PERCENTAGE') discount = Math.round((original * value) / 100)

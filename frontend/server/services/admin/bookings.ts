@@ -1,4 +1,5 @@
 import 'server-only'
+import { groupHourlyRate } from '../../../lib/playerPricing'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { ApiError, badRequest, notFound } from '../../http'
@@ -225,7 +226,7 @@ function unchanged(key: string, before: unknown, after: unknown): boolean {
  * untouched hourly rate is no longer pinned as a custom rate). Re-prices when a price input changed.
  */
 export async function updateBooking(id: string, input: UpdateBookingInput, db: SupabaseClient = getSupabase()) {
-  const { data: b, error } = await db.from('bookings').select('*, stations(hourly_rate, extra_controller_rate)').eq('id', id).maybeSingle()
+  const { data: b, error } = await db.from('bookings').select('*, stations(hourly_rate, extra_controller_rate, player_prices)').eq('id', id).maybeSingle()
   if (error) throw new ApiError(500, 'Failed to update booking')
   if (!b) throw notFound('Booking not found')
 
@@ -254,6 +255,7 @@ export async function updateBooking(id: string, input: UpdateBookingInput, db: S
       userCount: merged.user_count ?? 1,
       foodTotal: Number(merged.food_total ?? 0),
       controllerCharge,
+      groupRate: groupHourlyRate(b.stations, Number(merged.user_count ?? 1), merged.custom_hourly_rate),
       discountType: merged.discount_type ?? 'NONE',
       discountValue: Number(merged.discount_value ?? 0),
       couponDiscount: Number(merged.coupon_discount ?? 0),

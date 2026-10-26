@@ -1,5 +1,6 @@
 'use client'
 
+import { cleanPlayerPrices } from '@/lib/playerPricing'
 import { useState, useEffect } from 'react'
 import { AdminGuard } from '@/components/ui/admin-guard'
 import { stations } from '@/lib/supabase'
@@ -40,7 +41,8 @@ export default function AdminStations() {
     }
   }
 
-  const handleSave = async (station: any) => {
+  const handleSave = async (input: any) => {
+    const station = { ...input, player_prices: cleanPlayerPrices(input.player_prices) }
     try {
       if (station.id) {
         // Edit existing
@@ -64,6 +66,7 @@ export default function AdminStations() {
       type: station?.type || 'PS5',
       hourly_rate: station?.hourly_rate || 120,
       extra_controller_rate: station?.extra_controller_rate || 0,
+      player_prices: cleanPlayerPrices(station?.player_prices).map((p) => ({ players: String(p.players), price: String(p.price) })) as { players: string; price: string }[],
       description: station?.description || '',
       active: station?.active !== false,
       image_url: station?.image_url || ''
@@ -100,6 +103,28 @@ export default function AdminStations() {
                 onChange={(e) => setFormData({...formData, hourly_rate: Number(e.target.value)})}
                 className="bg-gray-800 border border-cyan-500/30 rounded px-3 py-2 text-white"
               />
+            </div>
+            <div className="text-sm text-gray-300">
+              Preset prices by number of players <span className="text-gray-500">(flat price per hour for that many players; blank = hourly rate × players)</span>
+              <div className="mt-2 space-y-2">
+                {formData.player_prices.map((row, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input type="number" min={1} max={50} placeholder="Players" value={row.players}
+                      onChange={(e) => setFormData({...formData, player_prices: formData.player_prices.map((r, j) => j === i ? { ...r, players: e.target.value } : r)})}
+                      className="w-24 bg-gray-800 border border-cyan-500/30 rounded px-3 py-2 text-white" />
+                    <span>players =</span>
+                    <input type="number" min={0} placeholder="₹ per hour" value={row.price}
+                      onChange={(e) => setFormData({...formData, player_prices: formData.player_prices.map((r, j) => j === i ? { ...r, price: e.target.value } : r)})}
+                      className="flex-1 bg-gray-800 border border-cyan-500/30 rounded px-3 py-2 text-white" />
+                    <button type="button" className="rounded bg-red-700 px-2 py-2 text-white" title="Remove"
+                      onClick={() => setFormData({...formData, player_prices: formData.player_prices.filter((_, j) => j !== i)})}>✕</button>
+                  </div>
+                ))}
+                <button type="button" className="rounded bg-gray-700 px-3 py-1 text-white"
+                  onClick={() => setFormData({...formData, player_prices: [...formData.player_prices, { players: String(formData.player_prices.length + 1), price: '' }]})}>
+                  + Add players option
+                </button>
+              </div>
             </div>
             <label className="block text-sm text-gray-300">
               Extra controller price (₹ per controller per hour, 0 = not offered)
@@ -339,6 +364,7 @@ export default function AdminStations() {
                     <div className="space-y-2 text-gray-300 mb-4">
                       <div><strong>Type:</strong> {station.type}</div>
                       <div><strong>Rate:</strong> ₹{station.hourly_rate}/hr</div>
+                      {cleanPlayerPrices(station.player_prices).length > 0 && <div><strong>Players:</strong> {cleanPlayerPrices(station.player_prices).map((p) => `${p.players}: ₹${p.price}`).join(' · ')}</div>}
                       {Number(station.extra_controller_rate) > 0 && <div><strong>Extra controller:</strong> ₹{station.extra_controller_rate}/hr</div>}
                       <div><strong>Description:</strong> {station.description}</div>
                     </div>
