@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { ApiError, badRequest, notFound } from '../../http'
 import { getSupabase } from '../../supabase'
+import { normalizePhone } from '../../whatsapp/client'
 import { fromIstString } from '../../time'
 import {
   computeStandings, generateRoundRobin, generateSingleElimination, noShowOrder, roundName, shuffle, totalRounds, type GeneratedMatch,
@@ -37,6 +38,12 @@ const fail = (msg: string, error: unknown) => {
   console.error(`${msg}:`, error)
   return new ApiError(500, msg)
 }
+
+/** A missing contact column means 17_tournament_walkin_contacts.sql has not been run; say so (staff screens only). */
+const entrantWriteError = (msg: string, error: { message?: string }) =>
+  /column|schema cache/i.test(error.message ?? '')
+    ? new ApiError(503, 'The database is missing the player contact columns. Run sql/setup/17_tournament_walkin_contacts.sql in Supabase, then try again.')
+    : fail(msg, error)
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
 
@@ -192,15 +199,48 @@ export async function deleteTournament(id: string, db: SupabaseClient = getSupab
 
 // ---- entrants -----------------------------------------------------------------------------------
 
+const phoneField = z.string().trim().max(20)
+const emailField = z.union([z.literal(''), z.string().trim().max(120).email('Enter a valid email address')])
+
 export const addEntrantSchema = z
-  .object({ display_name: z.string().trim().min(1).max(60).optional(), username: z.string().trim().min(1).max(30).optional() })
+  .object({
+    display_name: z.string().trim().min(1).max(60).optional(),
+    username: z.string().trim().min(1).max(30).optional(),
+    phone: phoneField.optional(),
+    email: emailField.optional(),
+    send_whatsapp: z.boolean().optional(),
+  })
   .refine((v) => v.display_name || v.username, 'Enter a name or a username')
+  .refine((v) => v.username || v.phone, { message: 'Enter the player\'s phone number', path: ['phone'] })
+
+/** 10-digit Indian mobile number (what is stored and shown), or an error staff can act on. */
+function cleanPhone(raw: string | null | undefined): string | null {
+  if (raw == null || raw.trim() === '') return null
+  const full = normalizePhone(raw)
+  if (!full) throw badRequest('Enter a valid 10-digit mobile number')
+  return full.slice(2)
+}
+const cleanEmail = (raw: string | null | undefined) => (raw ? raw.trim().toLowerCase() : null)
+
+/** Names the player already holding this phone or email, so staff see why a registration was refused. */
+async function assertContactFree(db: SupabaseClient, tournamentId: string, contact: { phone?: string | null; email?: string | null }, exceptId?: string) {
+  for (const [column, value, label] of [['phone', contact.phone, 'phone number'], ['email', contact.email, 'email']] as const) {
+    if (!value) continue
+    let q = db.from('tournament_entrants').select('id, display_name').eq('tournament_id', tournamentId).neq('status', 'withdrawn')
+    q = column === 'email' ? q.ilike('email', escapeLike(value)) : q.eq('phone', value)
+    if (exceptId) q = q.neq('id', exceptId)
+    const { data } = await q.limit(1).maybeSingle()
+    if (data) throw badRequest(`This ${label} is already registered in this tournament as ${data.display_name}`)
+  }
+}
 
 export const updateEntrantSchema = z
   .object({
     status: z.enum(['registered', 'waitlist', 'checked_in', 'withdrawn', 'disqualified']).optional(),
     payment_status: z.enum(['NOT_REQUIRED', 'PENDING', 'PAID']).optional(),
     display_name: z.string().trim().min(1).max(60).optional(),
+    phone: phoneField.nullable().optional(),
+    email: emailField.nullable().optional(),
     seed: z.number().int().min(1).max(1024).nullable().optional(),
     no_show: z.boolean().optional(),
   })
@@ -243,20 +283,28 @@ export async function addEntrant(tournamentId: string, input: z.infer<typeof add
     name = name ?? profile.full_name ?? profile.username
   }
 
+  const phone = cleanPhone(input.phone)
+  const email = cleanEmail(input.email)
+  await assertContactFree(db, tournamentId, { phone, email })
+
   const { data, error } = await db
     .from('tournament_entrants')
     .insert({
       tournament_id: tournamentId,
       user_id: userId,
       display_name: name,
+      phone,
+      email,
+      whatsapp_opt_in: input.send_whatsapp !== false,
       status: t.registered_count >= t.max_players ? 'waitlist' : 'registered',
       payment_status: Number(t.entry_fee) > 0 ? 'PENDING' : 'NOT_REQUIRED',
     })
     .select()
     .single()
-  if (error?.code === '23505') throw badRequest('That player is already registered')
-  if (error) throw fail('Failed to add the entrant', error)
-  if (userId && data?.id) await notifyEntrants(db, tournamentId, [data.id as string], 'registered') // only members have a number
+  if (error?.code === '23505') throw badRequest(/phone|email/.test(error.message ?? '') ? 'That phone number or email is already registered in this tournament' : 'That player is already registered')
+  if (error) throw entrantWriteError('Failed to add the entrant', error)
+  // members have a number on their account; staff-registered players have the one staff typed
+  if (data?.id && (userId || (phone && input.send_whatsapp !== false))) await notifyEntrants(db, tournamentId, [data.id as string], 'registered')
   return data
 }
 
@@ -284,8 +332,13 @@ export async function updateEntrant(
     throw badRequest('The tournament is full')
   }
 
+  if ('phone' in changes) changes.phone = cleanPhone(changes.phone as string | null)
+  if ('email' in changes) changes.email = cleanEmail(changes.email as string | null)
+  if (changes.phone || changes.email) await assertContactFree(db, tournamentId, { phone: changes.phone as string | null, email: changes.email as string | null }, entrantId)
+
   const { data, error } = await db.from('tournament_entrants').update(changes).eq('id', entrantId).select().maybeSingle()
-  if (error) throw fail('Failed to update the entrant', error)
+  if (error?.code === '23505') throw badRequest('That phone number or email is already registered in this tournament')
+  if (error) throw entrantWriteError('Failed to update the entrant', error)
   if (!data) throw notFound('Entrant not found')
 
   // staff promoted a waiting player by hand
@@ -598,7 +651,7 @@ export async function getTournamentDetail(tournamentId: string, db: SupabaseClie
     const { data: contacts, error: contactError } = await db.rpc('tournament_contacts', { p_tournament_id: tournamentId })
     if (contactError) console.error('Failed to load entrant contacts:', contactError) // the screens still work without them
     const byEntrant = new Map(((contacts ?? []) as Row[]).map((c) => [c.entrant_id as string, c]))
-    entrants = entrants.map((e) => ({ ...e, email: byEntrant.get(e.id)?.email ?? null, phone: byEntrant.get(e.id)?.phone ?? null }))
+    entrants = entrants.map((e) => ({ ...e, email: byEntrant.get(e.id)?.email ?? e.email ?? null, phone: byEntrant.get(e.id)?.phone ?? e.phone ?? null }))
   }
 
   // team members, for team entrants

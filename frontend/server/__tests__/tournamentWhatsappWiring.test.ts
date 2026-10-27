@@ -36,13 +36,17 @@ describe('WhatsApp is sent from the places where people get a place', () => {
     await updateEntrant('t1', id(1), { status: 'registered' }, db)
     expect(spy).toHaveBeenCalledWith(db, 't1', [id(1)], 'moved_up')
   })
-  it('staff add a member (told) or a walk-in by name (not)', async () => {
+  it('staff add a member (told), a player with a phone (told), or a player with WhatsApp switched off (not)', async () => {
     const member = fakeDb({ tables: { tournament_overview: { data: T }, user_profiles: { data: { user_id: 'u1', username: 'neo', full_name: 'Neo' } }, tournament_entrants: { data: { id: 'e1' } } } }).db
     await addEntrant('t1', { username: 'neo' }, member)
     expect(spy).toHaveBeenCalledWith(member, 't1', ['e1'], 'registered')
     spy.mockClear()
-    const walkIn = fakeDb({ tables: { tournament_overview: { data: T }, tournament_entrants: { data: { id: 'e2' } } } }).db
-    await addEntrant('t1', { display_name: 'Walk-in' }, walkIn)
+    const walkIn = () => fakeDb({ tables: { tournament_overview: { data: T }, tournament_entrants: (c: Call[]) => (has(c, 'insert') ? { data: { id: 'e2' } } : { data: null }) } }).db
+    const told = walkIn()
+    await addEntrant('t1', { display_name: 'Walk-in', phone: '9876543210' }, told)
+    expect(spy).toHaveBeenCalledWith(told, 't1', ['e2'], 'registered')
+    spy.mockClear()
+    await addEntrant('t1', { display_name: 'Quiet', phone: '9876543210', send_whatsapp: false }, walkIn())
     expect(spy).not.toHaveBeenCalled()
   })
   it('a team becomes complete when the last member accepts', async () => {
