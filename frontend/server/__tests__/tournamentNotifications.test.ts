@@ -91,3 +91,20 @@ describe('notifyEntrants', () => {
     await expect(notifyEntrants(broken, 't1', ['e1'], 'registered', { cfg })).resolves.toEqual([])
   })
 })
+
+describe('players staff registered by phone', () => {
+  const walkIn = { id: 'e9', user_id: null, team_id: null, display_name: 'Raj', status: 'registered', registered_at: '1', phone: '9876543210', whatsapp_opt_in: true }
+  it('are messaged on the phone staff typed', async () => {
+    const f = okFetch()
+    const w = world([walkIn])
+    const out = await notifyEntrants(w.db, 't1', ['e9'], 'registered', { cfg, fetchImpl: f })
+    expect(out.map((o) => o.status)).toEqual(['sent'])
+    expect(urls(f)[0].searchParams.get('Contact')).toBe('919876543210')
+  })
+  it('are left alone when staff switched WhatsApp off for them', async () => {
+    const f = okFetch()
+    const out = await notifyEntrants(world([{ ...walkIn, whatsapp_opt_in: false }]).db, 't1', ['e9'], 'registered', { cfg, fetchImpl: f })
+    expect(out).toEqual([])
+    expect(f).not.toHaveBeenCalled()
+  })
+})

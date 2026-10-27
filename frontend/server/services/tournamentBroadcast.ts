@@ -101,7 +101,7 @@ export async function startBroadcast(
   const t = await loadTournament(db, tournamentId)
   const ids = await audienceEntrantIds(db, tournamentId, input.audience, input.round)
   const { recipients } = ids.length ? await recipientsFor(db, tournamentId, ids) : { recipients: [] }
-  if (!recipients.length) throw badRequest('Nobody to send to: that group has no players with an account')
+  if (!recipients.length) throw badRequest('Nobody to send to: that group has no players with a WhatsApp number')
   if (recipients.length > MAX_RECIPIENTS) throw badRequest(`That is ${recipients.length} people. Send to a smaller group (at most ${MAX_RECIPIENTS}).`)
 
   const prefix = prefixOf(tournamentId, input.batch_id)
@@ -113,7 +113,7 @@ export async function startBroadcast(
         enqueue({
           event: 'tournament_update', phone: r.phone, name: r.name, userId: r.userId, urlParam: tournamentId, sentBy,
           vars: { name: r.name, tournament: t.name, message: input.message },
-          dedupeKey: `${prefix}${r.userId}`,
+          dedupeKey: `${prefix}${r.key}`,
           refs: { tournament_id: tournamentId, entrant_id: r.entrant.id as string },
         }, withDb),
       ),
@@ -149,7 +149,7 @@ export async function callMatchPlayers(matchId: string, sentBy: string, db: Supa
       const out = await notify({
         event: 'match_call', phone: r.phone, name: r.name, userId: r.userId, sentBy,
         vars: { name: r.name, tournament: t.name },
-        dedupeKey: `match:${matchId}:${r.userId}:call:${bucket}`,
+        dedupeKey: `match:${matchId}:${r.key}:call:${bucket}`,
         refs: { tournament_id: m.tournament_id as string, entrant_id: r.entrant.id as string },
       }, { ...deps, db })
       return { name: r.name, status: out.status, detail: out.detail }

@@ -77,27 +77,35 @@ describe('entrants', () => {
     const add = (t: object, input: object, extra: object = {}) => {
       const f = fakeDb({ tables: {
         tournament_overview: { data: { ...T, ...t } },
-        tournament_entrants: { data: { id: 'e1' }, ...extra },
+        tournament_entrants: (calls) => (calls.some((c) => c.method === 'insert') ? { data: { id: 'e1' }, ...extra } : { data: null }),
         user_profiles: { data: { user_id: 'u1', username: 'ann', full_name: 'Ann Lee' } },
       } })
       return addEntrant('t1', addEntrantSchema.parse(input), f.db).then(() => f.log)
     }
-    const inserted = (log: ReturnType<typeof fakeDb>['log']) => argOf(log.find((e) => e.table === 'tournament_entrants')!.calls, 'insert') as Record<string, unknown>
+    const inserted = (log: ReturnType<typeof fakeDb>['log']) => argOf(log.find((e) => e.table === 'tournament_entrants' && e.calls.some((c) => c.method === 'insert'))!.calls, 'insert') as Record<string, unknown>
 
-    expect(inserted(await add({ registered_count: 2 }, { display_name: 'Walk-in Raj' }))).toMatchObject({ display_name: 'Walk-in Raj', status: 'registered', payment_status: 'NOT_REQUIRED', user_id: null })
-    expect(inserted(await add({ registered_count: 4 }, { display_name: 'Late' }))).toMatchObject({ status: 'waitlist' })
-    expect(inserted(await add({ entry_fee: 100 }, { display_name: 'Payer' }))).toMatchObject({ payment_status: 'PENDING' })
+    expect(inserted(await add({ registered_count: 2 }, { display_name: 'Walk-in Raj', phone: '98765 43210', email: 'Raj@Example.com' }))).toMatchObject({ display_name: 'Walk-in Raj', phone: '9876543210', email: 'raj@example.com', whatsapp_opt_in: true, status: 'registered', payment_status: 'NOT_REQUIRED', user_id: null })
+    expect(inserted(await add({ registered_count: 4 }, { display_name: 'Late', phone: '9876543211' }))).toMatchObject({ status: 'waitlist' })
+    expect(inserted(await add({ entry_fee: 100 }, { display_name: 'Payer', phone: '9876543212' }))).toMatchObject({ payment_status: 'PENDING' })
     const byUser = await add({}, { username: 'ann' })
     expect(inserted(byUser)).toMatchObject({ user_id: 'u1', display_name: 'Ann Lee' })
     expect(byUser.find((e) => e.table === 'user_profiles')!.calls).toContainEqual({ method: 'ilike', args: ['username', 'ann'] })
     expect(() => addEntrantSchema.parse({})).toThrow()
+    expect(() => addEntrantSchema.parse({ display_name: 'No phone' })).toThrow(/phone/i)
+    expect(() => addEntrantSchema.parse({ display_name: 'Bad mail', phone: '9876543210', email: 'nope' })).toThrow()
+  })
+  it('refuses a phone number or email that is already registered, and a bad number', async () => {
+    const f = (taken: object | null) => fakeDb({ tables: { tournament_overview: { data: T }, tournament_entrants: (c) => (c.some((x) => x.method === 'insert') ? { data: { id: 'e1' } } : { data: taken }) } }).db
+    await expect(addEntrant('t1', addEntrantSchema.parse({ display_name: 'Dup', phone: '9876543210' }), f({ id: 'x', display_name: 'Rahul' })))
+      .rejects.toMatchObject({ status: 400, message: expect.stringContaining('already registered in this tournament as Rahul') })
+    await expect(addEntrant('t1', addEntrantSchema.parse({ display_name: 'Short', phone: '12345' }), f(null))).rejects.toMatchObject({ status: 400, message: expect.stringContaining('10-digit') })
   })
   it('explains duplicates, unknown usernames and late additions', async () => {
     const f = (over: object = {}, entrants: object = { data: { id: 'e' } }, profile: object = { data: { user_id: 'u', username: 'a' } }) =>
       fakeDb({ tables: { tournament_overview: { data: { ...T, ...over } }, tournament_entrants: entrants, user_profiles: profile } }).db
     await expect(addEntrant('t1', { username: 'ann' }, f({}, { error: { code: '23505' } }))).rejects.toMatchObject({ message: 'That player is already registered' })
     await expect(addEntrant('t1', { username: 'nobody' }, f({}, {}, { data: null }))).rejects.toMatchObject({ status: 404 })
-    await expect(addEntrant('t1', { display_name: 'x' }, f({ status: 'active', started_at: 'x' }))).rejects.toMatchObject({ status: 400 })
+    await expect(addEntrant('t1', { display_name: 'x', phone: '9876543210' }, f({ status: 'active', started_at: 'x' }))).rejects.toMatchObject({ status: 400 })
   })
 
   const entrantRow = { id: 'e1', tournament_id: 't1', status: 'registered' }

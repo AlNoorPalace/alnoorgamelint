@@ -30,6 +30,9 @@ export default function ManageTournamentPage() {
   const [busy, setBusy] = useState(false)
   const [tab, setTab] = useState<'entrants' | 'bracket'>('entrants')
   const [newName, setNewName] = useState('')
+  const [newPhone, setNewPhone] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [newWhatsapp, setNewWhatsapp] = useState(true)
   const [order, setOrder] = useState<string[] | null>(null)
   const [preview, setPreview] = useState<Match[] | null>(null)
   const [view, setView] = useState<'bracket' | 'list'>('bracket')
@@ -294,9 +297,27 @@ export default function ManageTournamentPage() {
           {tab === 'entrants' && (
             <div>
               {!started && (
-                <form className="mb-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (newName.trim()) run(async () => { await api.addEntrant(id, { display_name: newName.trim() }); setNewName('') }) }}>
-                  <input className="flex-1 rounded border border-gray-600 bg-gray-800 px-3 py-2 sm:max-w-xs" placeholder="Add walk-in player / team" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                  <button className={`${btn} bg-green-600`} disabled={busy}>Add</button>
+                <form
+                  className="mb-4 rounded-lg bg-gray-900 p-4"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (!newName.trim() || !newPhone.trim()) return
+                    run(async () => {
+                      await api.addEntrant(id, { display_name: newName.trim(), phone: newPhone.trim(), ...(newEmail.trim() ? { email: newEmail.trim() } : {}), send_whatsapp: newWhatsapp })
+                      setNewName(''); setNewPhone(''); setNewEmail('')
+                    })
+                  }}
+                >
+                  <div className="mb-2 text-sm font-semibold text-cyan-300">Register a player on their behalf</div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <input className="rounded border border-gray-600 bg-gray-800 px-3 py-2" placeholder="Name *" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                    <input className="rounded border border-gray-600 bg-gray-800 px-3 py-2" placeholder="Phone * (10 digits)" inputMode="tel" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} />
+                    <input className="rounded border border-gray-600 bg-gray-800 px-3 py-2" placeholder="Email (optional)" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-4">
+                    <label className="flex items-center gap-2 text-sm text-gray-300"><input type="checkbox" checked={newWhatsapp} onChange={(e) => setNewWhatsapp(e.target.checked)} />Send them the WhatsApp confirmation</label>
+                    <button className={`${btn} bg-green-600`} disabled={busy || !newName.trim() || !newPhone.trim()}>Register player</button>
+                  </div>
                 </form>
               )}
               <div className="space-y-2">
@@ -326,6 +347,15 @@ export default function ManageTournamentPage() {
                         <button disabled={busy} className={`${btn} bg-yellow-800`} onClick={() => { if (confirm(`Withdraw ${e.display_name}?`)) run(() => api.updateEntrant(id, e.id, { status: 'withdrawn' })) }}>Withdraw</button>
                         <button disabled={busy} className={`${btn} bg-red-900`} onClick={() => { if (confirm(`Disqualify ${e.display_name}?`)) run(() => api.updateEntrant(id, e.id, { status: 'disqualified' })) }}>DQ</button>
                       </>
+                    )}
+                    {!e.user_id && !e.team_id && !['withdrawn', 'disqualified'].includes(e.status) && (
+                      <button disabled={busy} className={`${btn} bg-gray-700`} onClick={() => {
+                        const phone = window.prompt(`Phone for ${e.display_name} (10 digits)`, e.phone ?? '')
+                        if (phone === null) return
+                        const email = window.prompt(`Email for ${e.display_name} (optional, leave empty for none)`, e.email ?? '')
+                        if (email === null) return
+                        run(() => api.updateEntrant(id, e.id, { phone: phone.trim() || null, email: email.trim() || null }))
+                      }}>Edit contact</button>
                     )}
                     {!started && <button disabled={busy} className={`${btn} text-red-400`} onClick={() => run(() => api.removeEntrant(id, e.id))}>Remove</button>}
                   </div>

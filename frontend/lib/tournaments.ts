@@ -39,6 +39,7 @@ export interface Entrant {
   no_show?: boolean
   email?: string | null // staff screens only
   phone?: string | null
+  user_id?: string | null
   team_id?: string | null
   team_members: { user_id: string; name: string; status: string }[]
 }
@@ -99,7 +100,7 @@ export const api = {
   update: (id: string, body: Record<string, unknown>) => call(`${base}/tournaments/${id}`, { method: 'PUT', json: body }),
   remove: (id: string) => call(`${base}/tournaments/${id}`, { method: 'DELETE' }),
   setStatus: (id: string, status: TournamentStatus) => call(`${base}/tournaments/${id}/status?status=${status}`, { method: 'PUT' }),
-  addEntrant: (id: string, body: { display_name?: string; username?: string }) => call(`${base}/tournaments/${id}/entrants`, { json: body }),
+  addEntrant: (id: string, body: { display_name?: string; username?: string; phone?: string; email?: string; send_whatsapp?: boolean }) => call(`${base}/tournaments/${id}/entrants`, { json: body }),
   updateEntrant: (id: string, entrantId: string, body: Record<string, unknown>) =>
     call(`${base}/tournaments/${id}/entrants/${entrantId}`, { method: 'PUT', json: body }),
   uploadImage: async (id: string, kind: ImageKind, file: Blob) => {
